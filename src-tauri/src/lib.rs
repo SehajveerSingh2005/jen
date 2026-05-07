@@ -4,6 +4,11 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandEvent;
 
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetWindowLongW, SetWindowLongW, ShowWindow, GWL_EXSTYLE, SW_SHOWNA, WS_EX_NOACTIVATE,
+};
+
 #[derive(Debug, Clone, Serialize, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum OrbState {
@@ -21,103 +26,6 @@ struct AppState {
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
-
-fn execute_command(text: &str) -> Result<(), String> {
-    let text = text.to_lowercase();
-    println!("Executing command for: {}", text);
-    
-    if text.contains("open") || text.contains("launch") || text.contains("start") {
-        let app = text
-            .replace("open", "")
-            .replace("launch", "")
-            .replace("start", "")
-            .trim()
-            .to_string();
-            
-        if !app.is_empty() {
-            println!("Attempting to start app: {}", app);
-            
-            // 1. Try common Windows paths if direct 'start' fails
-            let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
-            let common_apps = [
-                ("notion", vec![
-                    format!("{}\\AppData\\Local\\Programs\\Notion\\Notion.exe", user_profile),
-                ]),
-                ("discord", vec![
-                    format!("{}\\AppData\\Local\\Discord\\Update.exe --processStart Discord.exe", user_profile),
-                ]),
-                ("chrome", vec!["chrome.exe".to_string()]),
-                ("spotify", vec!["spotify.exe".to_string()]),
-            ];
-
-            for (key, paths) in &common_apps {
-                if app.contains(*key) {
-                    for p in paths {
-                        if std::process::Command::new("cmd")
-                            .args(["/C", "start", "", p])
-                            .spawn()
-                            .is_ok() {
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-
-            // 2. Fallback to generic start
-            let cmd = format!("start /B \"\" \"{}\" || start /B \"\" \"{}.exe\"", app, app);
-            std::process::Command::new("cmd")
-                .args(["/C", &cmd])
-                .spawn()
-                .map_err(|e| e.to_string())?;
-            return Ok(());
-        }
-    }
-
-    if text.contains("volume up") {
-        std::process::Command::new("powershell")
-            .args(["-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]175)"])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    } else if text.contains("volume down") {
-        std::process::Command::new("powershell")
-            .args(["-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]174)"])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    } else if text.contains("mute") {
-        std::process::Command::new("powershell")
-            .args(["-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]173)"])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    } else if text.contains("pause") || text.contains("stop music") || text.contains("stop audio") {
-        std::process::Command::new("powershell")
-            .args(["-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    } else if text.contains("resume") || text.contains("play music") || text.contains("play audio") {
-        std::process::Command::new("powershell")
-            .args(["-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    } else if text.contains("next") || text.contains("skip") {
-        std::process::Command::new("powershell")
-            .args(["-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]176)"])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    } else if text.contains("previous") || text.contains("back") {
-        std::process::Command::new("powershell")
-            .args(["-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]177)"])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    } else if text.contains("search google for") {
-        let query = text.replace("search google for", "").trim().to_string();
-        let url = format!("https://www.google.com/search?q={}", query);
-        std::process::Command::new("cmd")
-            .args(["/C", &format!("start \"\" \"{}\"", url)])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -157,6 +65,13 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_ignore_cursor_events(true);
                 
+                // Set WS_EX_NOACTIVATE to prevent focus
+                let hwnd = window.hwnd().unwrap();
+                unsafe {
+                    let style = GetWindowLongW(HWND(hwnd.0), GWL_EXSTYLE);
+                    let _ = SetWindowLongW(HWND(hwnd.0), GWL_EXSTYLE, style | WS_EX_NOACTIVATE.0 as i32);
+                }
+
                 // Position window at bottom center with 48px margin
                 if let Ok(Some(monitor)) = window.current_monitor() {
                     let screen_size = monitor.size();
@@ -202,9 +117,12 @@ pub fn run() {
                                             *s = OrbState::Listening;
                                         }
                                         if let Some(window) = app_handle.get_webview_window("main") {
-                                            let _ = window.show();
-                                            let _ = window.set_ignore_cursor_events(false);
-                                            let _ = window.set_focus();
+                                            // Show without stealing focus
+                                            let hwnd = window.hwnd().unwrap();
+                                            unsafe {
+                                                let _ = ShowWindow(HWND(hwnd.0), SW_SHOWNA);
+                                            }
+                                            let _ = window.set_ignore_cursor_events(true);
                                         }
                                         app_handle.emit("orb-state-change", OrbState::Listening).unwrap();
                                     },
@@ -224,24 +142,20 @@ pub fn run() {
                                     },
                                     Some("success") => {
                                         let text = json["text"].as_str().unwrap_or("");
-                                        println!("Command: {}", text);
+                                        println!("Command executed by Python: {}", text);
                                         
                                         {
                                             let mut s = state_lock.state.lock().unwrap();
-                                            if let Err(e) = execute_command(text) {
-                                                println!("Command execution failed: {}", e);
-                                                *s = OrbState::Error;
-                                                app_handle.emit("orb-state-change", OrbState::Error).unwrap();
-                                            } else {
-                                                *s = OrbState::Success;
-                                                app_handle.emit("orb-state-change", OrbState::Success).unwrap();
-                                            }
+                                            *s = OrbState::Success;
+                                            app_handle.emit("orb-state-change", OrbState::Success).unwrap();
                                         }
+
+                                        // Jen is already a ghost, no focus cleanup needed
                                         
-                                        // Wait 7 seconds then hide
+                                        // Simplify: Stay in terminal state (Success/Error) for 4s then hide
                                         let h = app_handle.clone();
                                         tauri::async_runtime::spawn(async move {
-                                            tokio::time::sleep(std::time::Duration::from_secs(7)).await;
+                                            tokio::time::sleep(std::time::Duration::from_secs(4)).await;
                                             
                                             let state_lock = h.state::<AppState>();
                                             let mut s = state_lock.state.lock().unwrap();
@@ -252,7 +166,6 @@ pub fn run() {
                                                 h.emit("orb-state-change", OrbState::Idle).unwrap();
                                                 if let Some(window) = h.get_webview_window("main") {
                                                     let _ = window.hide();
-                                                    let _ = window.set_ignore_cursor_events(true);
                                                 }
                                             }
                                         });

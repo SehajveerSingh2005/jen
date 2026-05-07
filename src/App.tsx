@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Orb, AgentState } from "./components/Orb";
 import { listen } from "@tauri-apps/api/event";
+import { motion, AnimatePresence } from "framer-motion";
 
 type AppOrbState = "idle" | "listening" | "processing" | "success" | "error" | "recording";
 
@@ -54,9 +55,25 @@ function App() {
 
   return (
     <main className="flex items-center justify-center w-screen h-screen bg-transparent overflow-hidden select-none">
-      <div className="w-32 h-32">
-        <Orb {...orbProps} />
-      </div>
+      <AnimatePresence mode="wait">
+        {state !== "idle" && (
+          <motion.div 
+            key="orb-container"
+            initial={{ opacity: 0, scale: 0.3, y: 100 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.3, y: 100 }}
+            transition={{ 
+              type: "spring", 
+              stiffness: 500, 
+              damping: 30,
+              mass: 0.5
+            }}
+            className="w-32 h-32"
+          >
+            <Orb {...orbProps} />
+          </motion.div>
+        )}
+      </AnimatePresence>
       
       {/* Dev helper to cycle states (remove in production) */}
       <div 
