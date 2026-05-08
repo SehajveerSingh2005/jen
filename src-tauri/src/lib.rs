@@ -136,6 +136,11 @@ pub fn run() {
                                 let state_lock = app_handle.state::<AppState>();
                                 
                                 match json["status"].as_str() {
+                                    Some("hide") => {
+                                        if let Some(window) = app_handle.get_webview_window("main") {
+                                            let _ = window.hide();
+                                        }
+                                    },
                                     Some("detected") => {
                                         println!("Wake word detected!");
                                         {

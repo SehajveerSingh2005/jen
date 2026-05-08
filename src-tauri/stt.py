@@ -78,6 +78,12 @@ INTENTS = {
         "minimise",
         "close"
     ],
+    "play_music": [
+        "play {song}",
+        "play music {song}",
+        "search and play {song}",
+        "listen to {song}"
+    ],
     "media_control": [
         "pause",
         "resume",
@@ -85,7 +91,6 @@ INTENTS = {
         "skip",
         "previous",
         "back",
-        "play",
         "stop music",
         "pause music",
         "play music",
@@ -93,7 +98,8 @@ INTENTS = {
         "skip 5 seconds",
         "rewind 5 seconds",
         "forward",
-        "rewind"
+        "rewind",
+        "play"
     ]
 }
 
@@ -125,10 +131,7 @@ def execute_automation(intent_data):
             target_win = None
             if app_name:
                 windows = gw.getWindowsWithTitle('')
-                # Filter out windows with empty titles
                 windows = [w for w in windows if w.title.strip()]
-                
-                # Try fuzzy matching on titles
                 titles = [w.title for w in windows]
                 best_title, score = process.extractOne(app_name, titles, scorer=fuzz.partial_ratio)
                 
@@ -137,11 +140,19 @@ def execute_automation(intent_data):
                         if win.title == best_title:
                             target_win = win
                             break
-            else:
-                target_win = gw.getActiveWindow()
+            
+            # CRITICAL: If no named window or doing generic command, 
+            # hide Jen's window FIRST to let focus return to the previous app
+            if not target_win:
+                print(json.dumps({"status": "hide"}), flush=True)
+                time.sleep(0.3) # Give Windows time to restore focus to the previous app
+                active = gw.getActiveWindow()
+                if active and "jen" not in active.title.lower():
+                    target_win = active
 
             if target_win:
                 try:
+                    print(f"DEBUG Acting on window: {target_win.title}", file=sys.stderr)
                     if is_close:
                         target_win.close()
                     elif is_minimize:
@@ -154,16 +165,22 @@ def execute_automation(intent_data):
                     elif is_focus:
                         if target_win.isMinimized:
                             target_win.restore()
-                        # Tap Alt to ensure we can set foreground window on Windows
                         pyautogui.press('alt')
                         target_win.activate()
                     return True
                 except Exception as e:
                     print(f"DEBUG Error manipulating window: {e}", file=sys.stderr)
             
-            # Fallback to Alt+Tab for generic "switch" if no target found
-            if is_focus and not app_name:
+            # Fallback to direct hotkeys
+            if is_close:
+                pyautogui.hotkey('alt', 'f4')
+            elif is_minimize:
+                pyautogui.hotkey('win', 'down')
+            elif is_maximize:
+                pyautogui.hotkey('win', 'up')
+            elif is_focus and not app_name:
                 pyautogui.hotkey('alt', 'tab')
+            return True
                 
         elif intent == "media_control":
             if any(k in raw_text for k in ["pause", "resume", "play", "stop"]):
@@ -190,6 +207,40 @@ def execute_automation(intent_data):
             if query:
                 import webbrowser
                 webbrowser.open(f"https://www.google.com/search?q={query}")
+                
+        elif intent == "play_music":
+            song = params.get("song", "")
+            if song:
+                import webbrowser
+                # Use Lucky search but with a more direct query
+                search_query = f"site:youtube.com {song} official audio"
+                url = f"https://www.google.com/search?q={search_query}&btnI=1"
+                webbrowser.open(url)
+                
+                # Robustness thread: Find the browser window, activate it, and force play
+                def robust_play():
+                    # Wait for redirect and load
+                    for _ in range(15): # 7.5 seconds total polling
+                        time.sleep(0.5)
+                        active = gw.getActiveWindow()
+                        if active and ("youtube" in active.title.lower() or "google" in active.title.lower()):
+                            # Found the browser or the search page, let's try to activate it
+                            try:
+                                active.activate()
+                                # 'k' is play/pause on YouTube
+                                pyautogui.press('k')
+                                # Media play/pause is even more aggressive
+                                pyautogui.press('playpause')
+                                # Space as final backup
+                                time.sleep(0.2)
+                                pyautogui.press('space')
+                                break
+                            except:
+                                pass
+                
+                threading.Thread(target=robust_play, daemon=True).start()
+                
+        return True
                 
         return True
     except Exception as e:
@@ -236,14 +287,24 @@ def parse_intent(text):
                         break
                 match = re.search(regex, text)
                 if match:
-                    params["app"] = match.group(1).strip()
-                    break
+                    extracted = match.group(1).strip()
+                    # If extracted is just "window", ignore it as an app name
+                    if extracted != "window":
+                        params["app"] = extracted
+                        break
     elif detected_intent == "google_search":
         for p in INTENTS["google_search"]:
             regex = p.replace("{query}", "(.*)")
             match = re.search(regex, text)
             if match:
                 params["query"] = match.group(1).strip()
+                break
+    elif detected_intent == "play_music":
+        for p in INTENTS["play_music"]:
+            regex = p.replace("{song}", "(.*)")
+            match = re.search(regex, text)
+            if match:
+                params["song"] = match.group(1).strip()
                 break
 
     if highest_score > 70:
@@ -310,7 +371,10 @@ def listen_and_transcribe():
                 with sr.Microphone(sample_rate=16000) as source:
                     try:
                         print(json.dumps({"status": "recording"}), flush=True)
-                        audio_clip = r.listen(source, timeout=5, phrase_time_limit=5)
+                        # Increase phrase_time_limit to 10s and add non_speaking_duration
+                        # This allows for longer commands like "play god's plan by drake"
+                        r.adjust_for_ambient_noise(source, duration=0.2)
+                        audio_clip = r.listen(source, timeout=7, phrase_time_limit=10)
                         print(json.dumps({"status": "transcribing"}), flush=True)
                         text = r.recognize_google(audio_clip)
                         
