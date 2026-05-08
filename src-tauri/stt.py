@@ -125,10 +125,18 @@ def execute_automation(intent_data):
             target_win = None
             if app_name:
                 windows = gw.getWindowsWithTitle('')
-                for win in windows:
-                    if app_name.lower() in win.title.lower():
-                        target_win = win
-                        break
+                # Filter out windows with empty titles
+                windows = [w for w in windows if w.title.strip()]
+                
+                # Try fuzzy matching on titles
+                titles = [w.title for w in windows]
+                best_title, score = process.extractOne(app_name, titles, scorer=fuzz.partial_ratio)
+                
+                if score > 60:
+                    for win in windows:
+                        if win.title == best_title:
+                            target_win = win
+                            break
             else:
                 target_win = gw.getActiveWindow()
 
@@ -139,7 +147,10 @@ def execute_automation(intent_data):
                     elif is_minimize:
                         target_win.minimize()
                     elif is_maximize:
+                        if target_win.isMinimized:
+                            target_win.restore()
                         target_win.maximize()
+                        target_win.activate()
                     elif is_focus:
                         if target_win.isMinimized:
                             target_win.restore()
