@@ -8,7 +8,6 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongW, SetWindowLongW, ShowWindow, GWL_EXSTYLE, SW_SHOWNA, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    SET_WINDOW_POS_FLAGS, HWND_TOPMOST, SetWindowPos, SW_MINIMIZE, SW_MAXIMIZE, SW_RESTORE,
 };
 use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
 
@@ -175,7 +174,7 @@ pub fn run() {
                                     },
                                     Some("media_control") => {
                                         let cmd = json["command"].as_str().unwrap_or("toggle");
-                                        let h = app_handle.clone();
+                                        let _h = app_handle.clone();
                                         let cmd_string = cmd.to_string();
                                         tauri::async_runtime::spawn(async move {
                                             let _ = media_command(cmd_string).await;

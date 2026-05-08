@@ -20,34 +20,34 @@ function App() {
   }, []);
 
   const orbProps = useMemo(() => {
-    // Modern tech palette
-    const defaultColors: [string, string] = ["#22d3ee", "#0ea5e9"]; // Cyan to Sky Blue (Tech Idle)
+    // Premium Metallic Silver-Blue palette (Lighter)
+    const defaultColors: [string, string] = ["#f8fafc", "#94a3b8"]; 
     
     switch (state) {
       case "listening":
       case "recording":
         return { 
           agentState: "listening" as AgentState, 
-          colors: ["#3b82f6", "#2563eb"] as [string, string] // Deep Blue (Active Listening)
+          colors: ["#bae6fd", "#38bdf8"] as [string, string] // Bright Sky Blue
         };
       case "processing":
         return { 
           agentState: "thinking" as AgentState, 
-          colors: ["#a855f7", "#7c3aed"] as [string, string] // Vibrant Purple (Thinking)
+          colors: ["#f3e8ff", "#a855f7"] as [string, string] // Metallic Lavender
         };
       case "success":
         return { 
           agentState: "talking" as AgentState, 
-          colors: ["#34d399", "#10b981"] as [string, string] // Emerald to Green (Success)
+          colors: ["#ecfdf5", "#10b981"] as [string, string] // Metallic Mint
         };
       case "error":
         return { 
           agentState: "thinking" as AgentState, 
-          colors: ["#f87171", "#dc2626"] as [string, string] // Red (Error)
+          colors: ["#fef2f2", "#ef4444"] as [string, string] // Metallic Rose
         };
       default:
         return { 
-          agentState: null as AgentState, 
+          agentState: "listening" as AgentState, 
           colors: defaultColors 
         };
     }
@@ -59,18 +59,20 @@ function App() {
         {state !== "idle" && (
           <motion.div 
             key="orb-container"
-            initial={{ opacity: 0, scale: 0.3, y: 100 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.3, y: 100 }}
+            initial={{ opacity: 0, scale: 0.2 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0, transition: { duration: 0.2, ease: "easeIn" } }}
             transition={{ 
               type: "spring", 
-              stiffness: 500, 
-              damping: 30,
-              mass: 0.5
+              stiffness: 600, 
+              damping: 18,
+              mass: 0.8
             }}
-            className="w-32 h-32"
+            className="w-36 h-36 overflow-visible"
           >
-            <Orb {...orbProps} />
+            <div className="w-full h-full flex items-center justify-center">
+              <Orb {...orbProps} className="w-32 h-32" />
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

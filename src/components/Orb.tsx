@@ -172,10 +172,6 @@ function Scene({
     const u = mat.uniforms
     u.uTime.value += delta * 0.5
 
-    if (u.uOpacity.value < 1) {
-      u.uOpacity.value = Math.min(1, u.uOpacity.value + delta * 2)
-    }
-
     let targetIn = 0
     let targetOut = 0.3
     if (modeRef.current === "manual") {
@@ -246,13 +242,13 @@ function Scene({
       uInverted: new THREE.Uniform(isDark ? 1 : 0),
       uInputVolume: new THREE.Uniform(0),
       uOutputVolume: new THREE.Uniform(0),
-      uOpacity: new THREE.Uniform(0),
+      uOpacity: new THREE.Uniform(1),
     }
   }, [perlinNoiseTexture, offsets])
 
   return (
     <mesh ref={circleRef}>
-      <circleGeometry args={[3.5, 64]} />
+      <circleGeometry args={[2.5, 64]} />
       <shaderMaterial
         uniforms={uniforms}
         fragmentShader={fragmentShader}
@@ -418,7 +414,7 @@ void main() {
     float noise = flow(decomposed, radius * 0.03 - uAnimation * 0.2) - 0.5;
     theta += noise * mix(0.08, 0.25, uOutputVolume);
 
-    // Initialize the base color to white
+    // Initialize the base color to white for remapping
     vec4 color = vec4(1.0, 1.0, 1.0, 1.0);
 
     // Original parameters for the ovals in polar coordinates
@@ -480,15 +476,24 @@ void main() {
     vec3 ringColor = vec3(1.0); // White ring color
     color.rgb = 1.0 - (1.0 - color.rgb) * (1.0 - ringColor * totalRingAlpha);
 
-    // Define colours to ramp against greyscale (could increase the amount of colours in the ramp)
-    vec3 color1 = vec3(0.0, 0.0, 0.0); // Black
-    vec3 color2 = uColor1; // Darker Color
-    vec3 color3 = uColor2; // Lighter Color
-    vec3 color4 = vec3(1.0, 1.0, 1.0); // White
+    // EMISSIVE LIGHT-ON-DARK COLOR RAMP
+    // intensity 0.0 -> Black (Background)
+    // intensity 0.3 -> Dark Theme
+    // intensity 0.7 -> Light Theme
+    // intensity 1.0 -> White (Center Glow)
+    
+    // In original mixing: 1.0 is background, < 1.0 is blob
+    float intensity = clamp(1.0 - color.r, 0.0, 1.0);
+    
+    vec3 c1 = vec3(0.0);           // Background (Black)
+    vec3 c2 = uColor2;             // Darker Metallic
+    vec3 c3 = uColor1;             // Lighter Metallic
+    vec3 c4 = vec3(1.0, 1.0, 1.0); // Highlight (White)
 
-    // Convert grayscale color to the color ramp
-    float luminance = mix(color.r, 1.0 - color.r, uInverted);
-    color.rgb = colorRamp(luminance, color1, color2, color3, color4); // Apply the color ramp
+    color.rgb = colorRamp(intensity, c1, c2, c3, c4);
+
+    // Boost brightness slightly
+    color.rgb *= 1.0;
 
     // Apply fade-in opacity
     color.a *= uOpacity;
