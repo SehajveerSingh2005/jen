@@ -2,7 +2,8 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
-use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::process::{CommandEvent, CommandChild};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -22,6 +23,7 @@ pub enum OrbState {
 
 struct AppState {
     state: Mutex<OrbState>,
+    python_child: Mutex<Option<CommandChild>>,
 }
 
 use tauri::menu::{Menu, MenuItem};
@@ -29,13 +31,31 @@ use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let ctrl_shift_j = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyJ);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new()
+            .with_handler(move |app, shortcut, event| {
+                if shortcut == &ctrl_shift_j && event.state() == ShortcutState::Pressed {
+                    let state = app.state::<AppState>();
+                    let mut python_child_guard = state.python_child.lock().unwrap();
+                    if let Some(child) = python_child_guard.as_mut() {
+                        let _ = child.write(b"trigger\n");
+                        println!("Manual trigger via hotkey sent to Python");
+                    }
+                }
+            })
+            .build()
+        )
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             state: Mutex::new(OrbState::Idle),
+            python_child: Mutex::new(None),
         })
-        .setup(|app| {
+        .setup(move |app| {
+            app.global_shortcut().register(ctrl_shift_j)?;
+
             let app_handle = app.handle().clone();
             
             // Setup System Tray
@@ -92,10 +112,16 @@ pub fn run() {
             // Start the persistent Python sidecar
             tauri::async_runtime::spawn(async move {
                 let shell = app_handle.shell();
-                let (mut rx, _child) = shell.command("python")
+                let (mut rx, child) = shell.command("python")
                     .args(["-u", "stt.py"]) // -u for unbuffered output
                     .spawn()
                     .expect("Failed to spawn Python STT sidecar");
+
+                // Store the child handle in AppState so we can write to its stdin
+                {
+                    let state = app_handle.state::<AppState>();
+                    *state.python_child.lock().unwrap() = Some(child);
+                }
 
                 while let Some(event) = rx.recv().await {
                     if let CommandEvent::Stdout(line_bytes) = event {
@@ -149,8 +175,6 @@ pub fn run() {
                                             *s = OrbState::Success;
                                             app_handle.emit("orb-state-change", OrbState::Success).unwrap();
                                         }
-
-                                        // Jen is already a ghost, no focus cleanup needed
                                         
                                         // Simplify: Stay in terminal state (Success/Error) for 4s then hide
                                         let h = app_handle.clone();
@@ -196,9 +220,6 @@ pub fn run() {
                                         });
                                     },
                                     Some("ready") => {
-                                        // When Python says ready, we only transition to Idle if we aren't currently 
-                                        // in Success/Error/Processing/Listening/Recording.
-                                        // This prevents the "jumping back to listening" bug.
                                         let mut s = state_lock.state.lock().unwrap();
                                         if !matches!(*s, OrbState::Success | OrbState::Error | OrbState::Processing | OrbState::Listening | OrbState::Recording) {
                                             *s = OrbState::Idle;

@@ -11,9 +11,25 @@ import re
 from thefuzz import process, fuzz
 import pyautogui
 import pygetwindow as gw
+import threading
 
 # Disable pyautogui failsafe to prevent crashes from rapid mouse movements
 pyautogui.FAILSAFE = False
+
+# Global flag for manual trigger
+trigger_manual = False
+
+def listen_stdin():
+    global trigger_manual
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            break
+        if line.strip() == "trigger":
+            trigger_manual = True
+
+# Start stdin listener thread
+threading.Thread(target=listen_stdin, daemon=True).start()
 
 # --- Intent Configuration ---
 INTENTS = {
@@ -254,49 +270,58 @@ def listen_and_transcribe():
             for _ in range(10):
                 stream.read(CHUNK, exception_on_overflow=False)
 
+            detected = False
             while True:
+                global trigger_manual
+                if trigger_manual:
+                    trigger_manual = False
+                    print(json.dumps({"status": "detected", "wakeword": "manual"}), flush=True)
+                    detected = True
+                    break
+
                 data = stream.read(CHUNK, exception_on_overflow=False)
                 audio_data = np.frombuffer(data, dtype=np.int16)
                 prediction = oww_model.predict(audio_data)
                 
-                detected = False
                 for wakeword, probability in prediction.items():
-                    if probability > 0.5:
+                    if probability > 0.3:
                         print(json.dumps({"status": "detected", "wakeword": wakeword}), flush=True)
                         detected = True
                         break
                 
                 if detected:
-                    stream.stop_stream()
-                    stream.close()
-                    
-                    with sr.Microphone(sample_rate=16000) as source:
-                        try:
-                            print(json.dumps({"status": "recording"}), flush=True)
-                            audio_clip = r.listen(source, timeout=5, phrase_time_limit=5)
-                            print(json.dumps({"status": "transcribing"}), flush=True)
-                            text = r.recognize_google(audio_clip)
+                    break
+
+            if detected:
+                stream.stop_stream()
+                stream.close()
+                
+                with sr.Microphone(sample_rate=16000) as source:
+                    try:
+                        print(json.dumps({"status": "recording"}), flush=True)
+                        audio_clip = r.listen(source, timeout=5, phrase_time_limit=5)
+                        print(json.dumps({"status": "transcribing"}), flush=True)
+                        text = r.recognize_google(audio_clip)
+                        
+                        result = parse_intent(text)
+                        if result:
+                            execute_automation(result)
+                            print(json.dumps({"status": "success", "text": text}), flush=True)
+                        else:
+                            print(json.dumps({"status": "success", "text": text}), flush=True)
                             
-                            result = parse_intent(text)
-                            if result:
-                                execute_automation(result)
-                                print(json.dumps({"status": "success", "text": text}), flush=True)
-                            else:
-                                print(json.dumps({"status": "success", "text": text}), flush=True)
-                                
-                        except sr.UnknownValueError:
-                            print(json.dumps({"status": "error", "message": "unknown"}), flush=True)
-                        except Exception as e:
-                            print(json.dumps({"status": "error", "message": str(e)}), flush=True)
-                        
-                        # Cooldown to prevent immediate re-triggering (feedback loop)
-                        print(json.dumps({"status": "ready"}), flush=True)
-                        
-                        # CRITICAL: Reset model state to clear internal audio buffers
-                        oww_model.reset()
-                        
-                        time.sleep(2.0)
-                        break 
+                    except sr.UnknownValueError:
+                        print(json.dumps({"status": "error", "message": "unknown"}), flush=True)
+                    except Exception as e:
+                        print(json.dumps({"status": "error", "message": str(e)}), flush=True)
+                    
+                    # Cooldown to prevent immediate re-triggering (feedback loop)
+                    print(json.dumps({"status": "ready"}), flush=True)
+                    
+                    # CRITICAL: Reset model state to clear internal audio buffers
+                    oww_model.reset()
+                    
+                    time.sleep(2.0)
     except KeyboardInterrupt:
         pass
     finally:
