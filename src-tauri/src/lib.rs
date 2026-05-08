@@ -7,7 +7,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongW, SetWindowLongW, ShowWindow, GWL_EXSTYLE, SW_SHOWNA, WS_EX_NOACTIVATE,
+    GetWindowLongW, SetWindowLongW, ShowWindow, GWL_EXSTYLE, SW_SHOWNA, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 #[derive(Debug, Clone, Serialize, Copy)]
@@ -85,11 +85,11 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_ignore_cursor_events(true);
                 
-                // Set WS_EX_NOACTIVATE to prevent focus
+                // Set WS_EX_NOACTIVATE to prevent focus and WS_EX_TOOLWINDOW to hide from Alt+Tab
                 let hwnd = window.hwnd().unwrap();
                 unsafe {
                     let style = GetWindowLongW(HWND(hwnd.0), GWL_EXSTYLE);
-                    let _ = SetWindowLongW(HWND(hwnd.0), GWL_EXSTYLE, style | WS_EX_NOACTIVATE.0 as i32);
+                    let _ = SetWindowLongW(HWND(hwnd.0), GWL_EXSTYLE, style | WS_EX_NOACTIVATE.0 as i32 | WS_EX_TOOLWINDOW.0 as i32);
                 }
 
                 // Position window at bottom center with 48px margin
