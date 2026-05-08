@@ -8,7 +8,12 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongW, SetWindowLongW, ShowWindow, GWL_EXSTYLE, SW_SHOWNA, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    SET_WINDOW_POS_FLAGS, HWND_TOPMOST, SetWindowPos, SW_MINIMIZE, SW_MAXIMIZE, SW_RESTORE,
 };
+use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
+
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 
 #[derive(Debug, Clone, Serialize, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -26,8 +31,35 @@ struct AppState {
     python_child: Mutex<Option<CommandChild>>,
 }
 
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+#[tauri::command]
+async fn toggle_playback() -> Result<(), String> {
+    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+        .map_err(|e| e.to_string())?.await
+        .map_err(|e| e.to_string())?;
+    
+    if let Ok(session) = manager.GetCurrentSession() {
+        let _ = session.TryTogglePlayPauseAsync().map_err(|e| e.to_string())?.await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn media_command(command: String) -> Result<(), String> {
+    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+        .map_err(|e| e.to_string())?.await
+        .map_err(|e| e.to_string())?;
+    
+    if let Ok(session) = manager.GetCurrentSession() {
+        match command.as_str() {
+            "next" => { let _ = session.TrySkipNextAsync().map_err(|e| e.to_string())?.await; },
+            "prev" => { let _ = session.TrySkipPreviousAsync().map_err(|e| e.to_string())?.await; },
+            "play" => { let _ = session.TryPlayAsync().map_err(|e| e.to_string())?.await; },
+            "pause" => { let _ = session.TryPauseAsync().map_err(|e| e.to_string())?.await; },
+            _ => {}
+        }
+    }
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -141,6 +173,20 @@ pub fn run() {
                                             let _ = window.hide();
                                         }
                                     },
+                                    Some("media_control") => {
+                                        let cmd = json["command"].as_str().unwrap_or("toggle");
+                                        let h = app_handle.clone();
+                                        let cmd_string = cmd.to_string();
+                                        tauri::async_runtime::spawn(async move {
+                                            let _ = media_command(cmd_string).await;
+                                        });
+                                    },
+                                    Some("window_control") => {
+                                        let _action = json["action"].as_str().unwrap_or("focus");
+                                        let _title = json["title"].as_str().unwrap_or("");
+                                        // This is where we'll implement the native Win32 window management
+                                        // for now we'll just handle basic actions if we have an HWND or title
+                                    },
                                     Some("detected") => {
                                         println!("Wake word detected!");
                                         {
@@ -244,7 +290,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![])
+        .invoke_handler(tauri::generate_handler![toggle_playback, media_command])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

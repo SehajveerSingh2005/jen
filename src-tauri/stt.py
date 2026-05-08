@@ -141,18 +141,16 @@ def execute_automation(intent_data):
                             target_win = win
                             break
             
-            # CRITICAL: If no named window or doing generic command, 
-            # hide Jen's window FIRST to let focus return to the previous app
             if not target_win:
                 print(json.dumps({"status": "hide"}), flush=True)
-                time.sleep(0.3) # Give Windows time to restore focus to the previous app
+                time.sleep(0.3)
                 active = gw.getActiveWindow()
                 if active and "jen" not in active.title.lower():
                     target_win = active
 
             if target_win:
                 try:
-                    print(f"DEBUG Acting on window: {target_win.title}", file=sys.stderr)
+                    # Use Native Window Management via JSON signal to Rust (or directly via pygetwindow which uses Win32)
                     if is_close:
                         target_win.close()
                     elif is_minimize:
@@ -165,34 +163,28 @@ def execute_automation(intent_data):
                     elif is_focus:
                         if target_win.isMinimized:
                             target_win.restore()
-                        pyautogui.press('alt')
                         target_win.activate()
                     return True
                 except Exception as e:
                     print(f"DEBUG Error manipulating window: {e}", file=sys.stderr)
             
-            # Fallback to direct hotkeys
-            if is_close:
-                pyautogui.hotkey('alt', 'f4')
-            elif is_minimize:
-                pyautogui.hotkey('win', 'down')
-            elif is_maximize:
-                pyautogui.hotkey('win', 'up')
-            elif is_focus and not app_name:
-                pyautogui.hotkey('alt', 'tab')
+            # Fallback to direct hotkeys only for generic actions
+            if not target_win:
+                if is_close: pyautogui.hotkey('alt', 'f4')
+                elif is_minimize: pyautogui.hotkey('win', 'down')
+                elif is_maximize: pyautogui.hotkey('win', 'up')
+                elif is_focus: pyautogui.hotkey('alt', 'tab')
             return True
                 
         elif intent == "media_control":
-            if any(k in raw_text for k in ["pause", "resume", "play", "stop"]):
-                pyautogui.press('playpause')
-            elif any(k in raw_text for k in ["next", "skip"]) and "5 seconds" not in raw_text:
-                pyautogui.press('nexttrack')
-            elif any(k in raw_text for k in ["previous", "back", "rewind"]) and "5 seconds" not in raw_text:
-                pyautogui.press('prevtrack')
-            elif "skip 5 seconds" in raw_text or "forward" in raw_text:
-                pyautogui.press('right')
-            elif "rewind 5 seconds" in raw_text or "rewind" in raw_text:
-                pyautogui.press('left')
+            cmd = "toggle"
+            if any(k in raw_text for k in ["pause", "stop"]): cmd = "pause"
+            elif any(k in raw_text for k in ["resume", "play"]): cmd = "play"
+            elif any(k in raw_text for k in ["next", "skip"]): cmd = "next"
+            elif any(k in raw_text for k in ["previous", "back", "rewind"]): cmd = "prev"
+            
+            # Send native media control signal to Rust
+            print(json.dumps({"status": "media_control", "command": cmd}), flush=True)
                 
         elif intent == "volume_control":
             if "up" in raw_text or "increase" in raw_text:
@@ -213,28 +205,56 @@ def execute_automation(intent_data):
             if song:
                 import webbrowser
                 # Use Lucky search but with a more direct query
+                # We add the SO suggested parameters to the end of the query 
+                # to see if Google/YouTube respects them upon redirect
                 search_query = f"site:youtube.com {song} official audio"
-                url = f"https://www.google.com/search?q={search_query}&btnI=1"
+                url = f"https://www.google.com/search?q={search_query}&btnI=1&autoplay=1&mute=0"
                 webbrowser.open(url)
                 
                 # Robustness thread: Find the browser window, activate it, and force play
                 def robust_play():
                     # Wait for redirect and load
-                    for _ in range(15): # 7.5 seconds total polling
-                        time.sleep(0.5)
+                    start_time = time.time()
+                    while time.time() - start_time < 25: # 25 seconds total polling
+                        time.sleep(1.0)
                         active = gw.getActiveWindow()
+                        
+                        if active and "jen" in active.title.lower():
+                            print(json.dumps({"status": "hide"}), flush=True)
+                            continue
+
+                        found_win = None
                         if active and ("youtube" in active.title.lower() or "google" in active.title.lower()):
-                            # Found the browser or the search page, let's try to activate it
+                            found_win = active
+                        else:
+                            all_windows = gw.getWindowsWithTitle('')
+                            for win in all_windows:
+                                if "youtube" in win.title.lower():
+                                    found_win = win
+                                    break
+                        
+                        if found_win:
                             try:
-                                active.activate()
-                                # 'k' is play/pause on YouTube
-                                pyautogui.press('k')
-                                # Media play/pause is even more aggressive
-                                pyautogui.press('playpause')
-                                # Space as final backup
-                                time.sleep(0.2)
-                                pyautogui.press('space')
-                                break
+                                if found_win.isMinimized:
+                                    found_win.restore()
+                                found_win.activate()
+                                
+                                # 1. Single 'k' press to kickstart the video player
+                                if "youtube" in found_win.title.lower():
+                                    time.sleep(1.5) # wait for focus to settle
+                                    pyautogui.press('k')
+                                    
+                                    # 2. Follow up with explicit "Play" signals (non-toggling)
+                                    # If 'k' worked, these do nothing. If 'k' was too early, 
+                                    # these will start the video once the media session is ready.
+                                    for _ in range(4):
+                                        time.sleep(3.0)
+                                        # Use the native signal to Rust (non-toggling)
+                                        print(json.dumps({"status": "media_control", "command": "play"}), flush=True)
+                                    break 
+                                else:
+                                    # If we are still on Google, just wait for the redirect
+                                    pass
                             except:
                                 pass
                 
