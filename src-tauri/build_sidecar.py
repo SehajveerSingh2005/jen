@@ -28,15 +28,26 @@ def build():
         os.makedirs(output_dir)
 
     # PyInstaller command
-    import openwakeword
-    oww_models_path = os.path.join(os.path.dirname(openwakeword.__file__), "resources", "models")
+    try:
+        import openwakeword
+        oww_models_path = os.path.join(os.path.dirname(openwakeword.__file__), "resources", "models")
+        # Use relative pathing for data to be safer with PyInstaller
+        oww_data = f"{oww_models_path};openwakeword/resources/models"
+    except ImportError:
+        print("openwakeword not found, attempting to build without specific model path...")
+        oww_data = None
     
     cmd = [
         "pyinstaller",
         "--onefile",
         "--noconsole",
         f"--add-data={model_path};.",
-        f"--add-data={oww_models_path};openwakeword/resources/models",
+    ]
+
+    if oww_data:
+        cmd.append(f"--add-data={oww_data}")
+
+    cmd.extend([
         "--collect-all=openwakeword",
         "--hidden-import=openwakeword",
         "--hidden-import=onnxruntime",
@@ -44,7 +55,7 @@ def build():
         "--hidden-import=pyaudio",
         "--name=stt",
         script_path
-    ]
+    ])
 
     # Run PyInstaller
     subprocess.run(cmd, check=True)
