@@ -49,7 +49,7 @@ jobs:
           # Update tauri.conf.json
           $tauri = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
           $tauri.version = $version
-          $tauri | ConvertTo-Json -Depth 10 | Set-Content src-tauri/tauri.conf.json
+          $tauri | ConvertTo-Json -Depth 10 | Set-Content -Encoding UTF8 src-tauri/tauri.conf.json
           
           echo "VERSION=$version" >> $env:GITHUB_ENV
 
@@ -78,7 +78,11 @@ jobs:
         run: python src-tauri/build_sidecar.py
 
       - name: check sidecar
-        run: dir src-tauri/binaries
+        run: |
+          echo "Checking binaries folder:"
+          ls -R src-tauri/binaries
+          echo "Current working directory:"
+          cd src-tauri && pwd
 
       - uses: tauri-apps/tauri-action@v0
         env:

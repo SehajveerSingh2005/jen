@@ -4,31 +4,31 @@ import sys
 import shutil
 
 def build():
-    # Get current directory
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(current_dir)
+    # Get the absolute path to the src-tauri directory
+    src_tauri_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(src_tauri_dir)
 
     # Define paths
-    script_path = os.path.abspath("stt.py")
-    model_path = os.path.abspath("hey_jen.onnx")
-    output_dir = os.path.abspath("binaries")
+    script_path = os.path.join(src_tauri_dir, "stt.py")
+    model_path = os.path.join(src_tauri_dir, "hey_jen.onnx")
+    output_dir = os.path.join(src_tauri_dir, "binaries")
     
-    # Get target triple from rustc
+    # Get target triple
     try:
         target_triple = subprocess.check_output(["rustc", "-vV"]).decode().split("host: ")[1].split("\n")[0].strip()
     except:
-        target_triple = "x86_64-pc-windows-msvc" # Fallback
+        target_triple = "x86_64-pc-windows-msvc"
 
     binary_name = f"stt-{target_triple}.exe"
 
-    print(f"Building sidecar for {target_triple}...")
+    print(f"Target Triple: {target_triple}")
+    print(f"Output Directory: {output_dir}")
+    print(f"Final Binary Name: {binary_name}")
 
-    # Ensure output directory exists
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     # PyInstaller command
-    # We rely on --collect-all for openwakeword to avoid manual path errors in CI
     cmd = [
         "pyinstaller",
         "--onefile",
@@ -43,37 +43,29 @@ def build():
         script_path
     ]
 
-    print(f"Running command: {' '.join(cmd)}")
-
-    # Run PyInstaller
+    print(f"Executing: {' '.join(cmd)}")
     subprocess.run(cmd, check=True)
 
     # Move and rename the binary
-    # PyInstaller puts output in 'dist' relative to current_dir
-    dist_exe = os.path.join("dist", "stt.exe")
+    dist_exe = os.path.join(src_tauri_dir, "dist", "stt.exe")
     final_path = os.path.join(output_dir, binary_name)
 
     if not os.path.exists(dist_exe):
-        print(f"ERROR: PyInstaller failed to create {dist_exe}")
+        print(f"ERROR: PyInstaller failed. {dist_exe} not found.")
         sys.exit(1)
 
     if os.path.exists(final_path):
         os.remove(final_path)
     
     shutil.move(dist_exe, final_path)
+    print(f"SUCCESS: Moved {dist_exe} to {final_path}")
 
-    print(f"Success! Sidecar built at: {final_path}")
-
-    # Final verification for Tauri
-    if not os.path.exists(final_path):
-        print(f"ERROR: Final binary missing at {final_path}")
-        sys.exit(1)
-
-    # Cleanup build artifacts
-    shutil.rmtree("build", ignore_errors=True)
-    shutil.rmtree("dist", ignore_errors=True)
-    if os.path.exists("stt.spec"):
-        os.remove("stt.spec")
+    # Cleanup
+    shutil.rmtree(os.path.join(src_tauri_dir, "build"), ignore_errors=True)
+    shutil.rmtree(os.path.join(src_tauri_dir, "dist"), ignore_errors=True)
+    spec_file = os.path.join(src_tauri_dir, "stt.spec")
+    if os.path.exists(spec_file):
+        os.remove(spec_file)
 
 if __name__ == "__main__":
     build()
