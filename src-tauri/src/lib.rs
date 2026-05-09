@@ -80,7 +80,6 @@ fn play_error_sound(app: &tauri::AppHandle) {
 fn set_audio_feedback(state: tauri::State<'_, AppState>, enabled: bool) {
     let mut guard = state.audio_feedback.lock().unwrap();
     *guard = enabled;
-    println!("Audio feedback set to: {}", enabled);
 }
 
 #[tauri::command]
@@ -208,7 +207,6 @@ pub fn run() {
                     if let Some(enabled) = audio_feedback.as_bool() {
                         let mut guard = state.audio_feedback.lock().unwrap();
                         *guard = enabled;
-                        println!("Loaded audio feedback: {}", enabled);
                     }
                 }
 
@@ -220,7 +218,6 @@ pub fn run() {
                             let _ = app_handle.global_shortcut().register(shortcut);
                             let mut current = state.current_shortcut.lock().unwrap();
                             *current = Some(shortcut);
-                            println!("Loaded hotkey: {}", hotkey_str);
                         }
                     }
                 } else {
@@ -231,7 +228,6 @@ pub fn run() {
                         let _ = app_handle.global_shortcut().register(shortcut);
                         let mut current = state.current_shortcut.lock().unwrap();
                         *current = Some(shortcut);
-                        println!("Registered default hotkey: {}", default_hotkey);
                     }
                 }
             } else {

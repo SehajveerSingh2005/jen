@@ -17,18 +17,15 @@ function SettingsApp() {
 
   useEffect(() => {
     const loadSettings = async () => {
-      console.log("Loading settings...");
       try {
         const autostartEnabled = await isEnabled();
         setAutostart(autostartEnabled);
 
         const store = await load("settings.json", { autoSave: true });
         const savedHotkey = await store.get<string>("activation_hotkey");
-        console.log("Saved hotkey:", savedHotkey);
         if (savedHotkey) setHotkey(savedHotkey);
 
         const savedAudioCues = await store.get<boolean>("audio_feedback");
-        console.log("Saved audio cues:", savedAudioCues);
         if (savedAudioCues !== null) setAudioCues(savedAudioCues);
       } catch (e) {
         console.error("Failed to load settings:", e);
