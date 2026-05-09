@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { Orb, AgentState } from "./components/Orb";
 import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
+import { invoke } from "@tauri-apps/api/core";
+import { load } from "@tauri-apps/plugin-store";
 
 type AppOrbState = "idle" | "listening" | "processing" | "success" | "error" | "recording";
 
@@ -9,6 +11,28 @@ function App() {
   const [state, setState] = useState<AppOrbState>("idle");
 
   useEffect(() => {
+    // Initial Setup: Register Shortcut and Audio Feedback
+    const initApp = async () => {
+      try {
+        const store = await load("settings.json", { autoSave: true });
+        
+        // 1. Setup Hotkey
+        const savedHotkey = await store.get<string>("activation_hotkey");
+        const hotkeyToRegister = savedHotkey || "Ctrl+Shift+R";
+        await invoke("register_shortcut", { shortcutStr: hotkeyToRegister });
+
+        // 2. Setup Audio Feedback
+        const savedAudioCues = await store.get<boolean>("audio_feedback");
+        if (savedAudioCues !== null) {
+          await invoke("set_audio_feedback", { enabled: savedAudioCues });
+        }
+      } catch (e) {
+        console.error("Failed to initialize app settings:", e);
+      }
+    };
+
+    initApp();
+
     // Listen for state changes from Rust
     const unlisten = listen<AppOrbState>("orb-state-change", (event) => {
       setState(event.payload);

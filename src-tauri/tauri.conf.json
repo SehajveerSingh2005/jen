@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "jen",
+        "label": "main",
         "width": 160,
         "height": 160,
         "resizable": false,
@@ -22,6 +23,18 @@
         "shadow": false,
         "visible": false,
         "skipTaskbar": true
+      },
+      {
+        "title": "Jen Settings",
+        "label": "settings",
+        "width": 400,
+        "height": 500,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "visible": false,
+        "url": "settings.html"
       }
     ],
     "security": {

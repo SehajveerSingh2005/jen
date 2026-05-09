@@ -26,6 +26,8 @@
           "sidecar": true
         }
       ]
-    }
+    },
+    "autostart:default",
+    "store:default"
   ]
 }

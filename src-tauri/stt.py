@@ -13,6 +13,9 @@ import pyautogui
 import pygetwindow as gw
 import threading
 
+# Disable TQDM progress bars
+os.environ["TQDM_DISABLE"] = "1"
+
 # Disable pyautogui failsafe to prevent crashes from rapid mouse movements
 pyautogui.FAILSAFE = False
 
@@ -341,16 +344,11 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def listen_and_transcribe():
-    try:
-        from openwakeword.utils import download_models
-        download_models()
-    except:
-        pass
-
-    model_path = get_resource_path("hey_jen.onnx")
+    model_path = os.path.abspath(get_resource_path("hey_jen.onnx"))
     wakeword_models = [model_path] if os.path.exists(model_path) else ["hey_jarvis"]
     
-    oww_model = Model(wakeword_models=wakeword_models, inference_framework="onnx")
+    # pretrained=False prevents downloading all default models
+    oww_model = Model(wakeword_models=wakeword_models, inference_framework="onnx", pretrained=False)
     r = sr.Recognizer()
     
     FORMAT = pyaudio.paInt16
