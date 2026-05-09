@@ -347,8 +347,8 @@ def listen_and_transcribe():
     model_path = os.path.abspath(get_resource_path("hey_jen.onnx"))
     wakeword_models = [model_path] if os.path.exists(model_path) else ["hey_jarvis"]
     
-    # pretrained=False prevents downloading all default models
-    oww_model = Model(wakeword_models=wakeword_models, inference_framework="onnx", pretrained=False)
+    # Load model from resource path or fallback
+    oww_model = Model(wakeword_models=wakeword_models, inference_framework="onnx")
     r = sr.Recognizer()
     
     FORMAT = pyaudio.paInt16

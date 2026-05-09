@@ -28,11 +28,16 @@ def build():
         os.makedirs(output_dir)
 
     # PyInstaller command
+    import openwakeword
+    oww_models_path = os.path.join(os.path.dirname(openwakeword.__file__), "resources", "models")
+    
     cmd = [
         "pyinstaller",
         "--onefile",
         "--noconsole",
         f"--add-data={model_path};.",
+        f"--add-data={oww_models_path};openwakeword/resources/models",
+        "--collect-all=openwakeword",
         "--hidden-import=openwakeword",
         "--hidden-import=onnxruntime",
         "--hidden-import=speech_recognition",
