@@ -41,16 +41,45 @@
   @apply px-8 py-4 bg-white border border-[#e8e8ed] text-[#1d1d1f] rounded-full font-medium transition-all hover:bg-[#f5f5f7] active:scale-95;
 }
 
-.orb-container {
-  @apply relative w-full aspect-square max-w-md mx-auto my-12 flex items-center justify-center;
+.orb-viewport-stable {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-width: 380px; /* Adjusted middle ground between 320px and 450px */
+  margin: 2rem auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Force contain to prevent layout shift */
+  contain: paint size;
 }
 
 .orb-glow {
   @apply absolute inset-0 bg-sky-400/10 blur-[100px] rounded-full;
 }
 
-.feature-grid {
-  @apply grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto px-8 py-24;
+/* Mockup Enhancements */
+.mockup-container {
+  @apply relative w-full aspect-video bg-[#1d1d1f] rounded-[2rem] overflow-hidden border border-black/5 shadow-2xl;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end; /* Pin to bottom */
+  align-items: center;
+}
+
+
+.mockup-wallpaper {
+  @apply absolute inset-0 opacity-40 pointer-events-none;
+  background: radial-gradient(circle at 20% 30%, #4338ca 0%, transparent 50%),
+              radial-gradient(circle at 80% 70%, #1e1b4b 0%, transparent 50%);
+}
+
+.download-card-premium {
+  @apply flex-1 p-10 bg-white border border-[#e8e8ed] rounded-[2rem] shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all hover:scale-[1.02] active:scale-[0.98] flex flex-col items-start text-left;
+}
+
+.download-card-disabled {
+  @apply flex-1 p-10 bg-[#f5f5f7] border border-[#e8e8ed] rounded-[2rem] opacity-50 flex flex-col items-start text-left grayscale;
 }
 
 .feature-item {
