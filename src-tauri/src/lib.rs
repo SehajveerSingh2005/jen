@@ -373,11 +373,13 @@ pub fn run() {
                     println!("Spawning STT sidecar...");
 
                     // Use sidecar in production/build, or if the binary exists
-                    // For dev without binary, this might fail unless we use .command("python")
-                    // but we're moving towards a binary-first workflow.
                     let cmd = shell.sidecar("stt").unwrap_or_else(|_| {
-                        // Fallback to python for dev if sidecar fails to load
-                        shell.command("python").args(["-u", "stt.py"])
+                        // Fallback to python for dev. Try root and src-tauri paths.
+                        if std::path::Path::new("src-tauri/stt.py").exists() {
+                            shell.command("python").args(["-u", "src-tauri/stt.py"])
+                        } else {
+                            shell.command("python").args(["-u", "stt.py"])
+                        }
                     });
 
                     let (mut rx, child) = cmd.spawn().expect("Failed to spawn STT process");

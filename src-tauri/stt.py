@@ -134,15 +134,18 @@ def execute_automation(intent_data):
             target_win = None
             if app_name:
                 windows = gw.getWindowsWithTitle('')
-                windows = [w for w in windows if w.title.strip()]
+                # Filter for visible windows with a title and non-zero size
+                windows = [w for w in windows if w.title.strip() and w.width > 0 and w.height > 0]
                 titles = [w.title for w in windows]
-                best_title, score = process.extractOne(app_name, titles, scorer=fuzz.partial_ratio)
                 
-                if score > 60:
-                    for win in windows:
-                        if win.title == best_title:
-                            target_win = win
-                            break
+                if titles:
+                    best_title, score = process.extractOne(app_name, titles, scorer=fuzz.partial_ratio)
+                    
+                    if score > 60:
+                        for win in windows:
+                            if win.title == best_title:
+                                target_win = win
+                                break
             
             if not target_win:
                 print(json.dumps({"status": "hide"}), flush=True)
@@ -153,7 +156,7 @@ def execute_automation(intent_data):
 
             if target_win:
                 try:
-                    # Use Native Window Management via JSON signal to Rust (or directly via pygetwindow which uses Win32)
+                    # Use Native Window Management
                     if is_close:
                         target_win.close()
                     elif is_minimize:
@@ -166,10 +169,16 @@ def execute_automation(intent_data):
                     elif is_focus:
                         if target_win.isMinimized:
                             target_win.restore()
+                        
+                        # "Force" focus trick: Tap Alt to allow SetForegroundWindow
+                        pyautogui.press('alt') 
                         target_win.activate()
                     return True
                 except Exception as e:
-                    print(f"DEBUG Error manipulating window: {e}", file=sys.stderr)
+                    # Error code 0 is often a false positive or harmless on Windows
+                    if "Error code from Windows: 0" not in str(e):
+                        print(f"DEBUG Error manipulating window: {e}", file=sys.stderr)
+                    return True
             
             # Fallback to direct hotkeys only for generic actions
             if not target_win:

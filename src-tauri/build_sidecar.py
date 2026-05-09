@@ -28,23 +28,43 @@ def build():
         os.makedirs(output_dir)
 
     # PyInstaller command
+    oww_data = None
     try:
         import openwakeword
-        oww_models_path = os.path.join(os.path.dirname(openwakeword.__file__), "resources", "models")
-        # Use relative pathing for data to be safer with PyInstaller
-        oww_data = f"{oww_models_path};openwakeword/resources/models"
+        pkg_path = os.path.dirname(openwakeword.__file__)
+        print(f"DEBUG: openwakeword found at {pkg_path}")
+        
+        # Possible locations for models
+        possible_model_paths = [
+            os.path.join(pkg_path, "resources", "models"),
+            os.path.join(pkg_path, "models")
+        ]
+        
+        for p in possible_model_paths:
+            if os.path.exists(p):
+                print(f"DEBUG: Found models at {p}")
+                # Use absolute path to avoid ambiguity
+                abs_p = os.path.abspath(p)
+                # Calculate the relative destination inside the app
+                rel_dest = os.path.relpath(p, pkg_path)
+                oww_data = f"{abs_p};openwakeword/{rel_dest}"
+                break
+        
+        if not oww_data:
+            print("WARNING: Could not find openwakeword models directory!")
+            
     except ImportError:
         print("openwakeword not found, attempting to build without specific model path...")
-        oww_data = None
     
     cmd = [
         "pyinstaller",
         "--onefile",
         "--noconsole",
-        f"--add-data={model_path};.",
+        f"--add-data={os.path.abspath(model_path)};.",
     ]
 
     if oww_data:
+        print(f"DEBUG: Adding data: {oww_data}")
         cmd.append(f"--add-data={oww_data}")
 
     cmd.extend([
@@ -54,7 +74,7 @@ def build():
         "--hidden-import=speech_recognition",
         "--hidden-import=pyaudio",
         "--name=stt",
-        script_path
+        "stt.py"
     ])
 
     # Run PyInstaller
