@@ -77,12 +77,16 @@ jobs:
       - name: build sidecar
         run: python src-tauri/build_sidecar.py
 
-      - name: check sidecar
+      - name: diagnostics and check
+        shell: pwsh
         run: |
-          echo "Checking binaries folder:"
-          ls -R src-tauri/binaries
-          echo "Current working directory:"
-          cd src-tauri && pwd
+          Write-Host "--- Post-Sidecar Diagnostics ---"
+          Write-Host "Searching for sidecar binary in the entire project:"
+          Get-ChildItem -Path . -Recurse -Filter "stt-x86_64-pc-windows-msvc.exe" | Select-Object FullName
+          
+          Write-Host "Tauri Environment Info:"
+          pnpm tauri info
+          Write-Host "--- End Diagnostics ---"
 
       - uses: tauri-apps/tauri-action@v0
         env:
