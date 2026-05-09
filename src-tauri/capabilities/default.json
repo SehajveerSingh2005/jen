@@ -3,10 +3,14 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": [
-    "main"
+    "main",
+    "settings"
   ],
   "permissions": [
     "core:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:event:default",
     "opener:default",
     "shell:default",
     {

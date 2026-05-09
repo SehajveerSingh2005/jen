@@ -17,15 +17,18 @@ function SettingsApp() {
 
   useEffect(() => {
     const loadSettings = async () => {
+      console.log("Loading settings...");
       try {
         const autostartEnabled = await isEnabled();
         setAutostart(autostartEnabled);
 
         const store = await load("settings.json", { autoSave: true });
         const savedHotkey = await store.get<string>("activation_hotkey");
+        console.log("Saved hotkey:", savedHotkey);
         if (savedHotkey) setHotkey(savedHotkey);
 
         const savedAudioCues = await store.get<boolean>("audio_feedback");
+        console.log("Saved audio cues:", savedAudioCues);
         if (savedAudioCues !== null) setAudioCues(savedAudioCues);
       } catch (e) {
         console.error("Failed to load settings:", e);
@@ -36,23 +39,38 @@ function SettingsApp() {
   }, []);
 
   const toggleAutostart = async () => {
-    if (autostart) {
-      await disable();
-    } else {
-      await enable();
+    try {
+      if (autostart) {
+        await disable();
+      } else {
+        await enable();
+      }
+      setAutostart(!autostart);
+    } catch (e) {
+      console.error("Failed to toggle autostart:", e);
     }
-    setAutostart(!autostart);
   };
 
   const updateAudioCues = async (val: boolean) => {
-    setAudioCues(val);
-    const store = await load("settings.json");
-    await store.set("audio_feedback", val);
-    await invoke("set_audio_feedback", { enabled: val });
+    try {
+      setAudioCues(val);
+      const store = await load("settings.json");
+      await store.set("audio_feedback", val);
+      await invoke("set_audio_feedback", { enabled: val });
+    } catch (e) {
+      console.error("Failed to update audio cues:", e);
+    }
   };
 
   const handleClose = async () => {
-    await appWindow.hide();
+    try {
+      console.log("Attempting to close settings window...");
+      await appWindow.close();
+    } catch (e) {
+      console.error("Failed to close window via appWindow.close():", e);
+      // Fallback: try to hide it
+      await appWindow.hide();
+    }
   };
 
   const startRecording = () => {
@@ -107,16 +125,31 @@ function SettingsApp() {
   }, [isRecording, stopRecording]);
 
   return (
-    <div className="h-screen bg-[#0a0a0a] text-slate-200 font-sans flex flex-col selection:bg-sky-500/30 overflow-hidden border border-white/10 rounded-xl shadow-2xl">
+    <div className="h-screen w-screen bg-[#0a0a0a] text-slate-200 font-sans flex flex-col selection:bg-sky-500/30 overflow-hidden border border-white/10 rounded-xl shadow-2xl">
       {/* Custom Titlebar */}
-      <div data-tauri-drag-region className="h-10 flex items-center justify-between px-4 bg-slate-900/50 backdrop-blur-md border-b border-white/5 shrink-0 drag-region">
-        <div className="flex items-center gap-2 pointer-events-none">
+      <div className="h-10 flex items-center justify-between px-4 bg-slate-900/90 border-b border-white/5 shrink-0 relative select-none">
+        {/* The actual draggable area - we use an absolute div that fills the space but stays behind the button */}
+        <div 
+          data-tauri-drag-region
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              appWindow.startDragging();
+            }
+          }}
+          className="absolute inset-0 z-0 drag-region cursor-default"
+        />
+        
+        <div className="flex items-center gap-2 pointer-events-none z-10">
           <SettingsIcon className="w-3.5 h-3.5 text-slate-400" />
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Jen Settings</span>
         </div>
+
         <button 
-          onClick={handleClose}
-          className="p-1.5 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors text-slate-500 no-drag"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleClose();
+          }}
+          className="p-1.5 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors text-slate-500 z-50 relative cursor-pointer no-drag"
         >
           <X className="w-4 h-4" />
         </button>

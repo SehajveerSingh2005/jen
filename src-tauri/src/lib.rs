@@ -4,6 +4,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_store::StoreExt;
 
 use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
 use windows::Win32::Foundation::HWND;
@@ -196,6 +197,54 @@ pub fn run() {
         })
         .setup(move |app| {
             let app_handle = app.handle().clone();
+
+            // Load saved settings
+            if let Ok(store) = app_handle.store("settings.json") {
+                let state = app_handle.state::<AppState>();
+
+                // Apply audio feedback setting
+                if let Some(audio_feedback) = store.get("audio_feedback") {
+                    if let Some(enabled) = audio_feedback.as_bool() {
+                        let mut guard = state.audio_feedback.lock().unwrap();
+                        *guard = enabled;
+                        println!("Loaded audio feedback: {}", enabled);
+                    }
+                }
+
+                // Apply activation hotkey
+                if let Some(hotkey_val) = store.get("activation_hotkey") {
+                    if let Some(hotkey_str) = hotkey_val.as_str() {
+                        use std::str::FromStr;
+                        if let Ok(shortcut) = Shortcut::from_str(hotkey_str) {
+                            let _ = app_handle.global_shortcut().register(shortcut);
+                            let mut current = state.current_shortcut.lock().unwrap();
+                            *current = Some(shortcut);
+                            println!("Loaded hotkey: {}", hotkey_str);
+                        }
+                    }
+                } else {
+                    // Register default shortcut if none saved
+                    use std::str::FromStr;
+                    let default_hotkey = "Ctrl+Shift+R";
+                    if let Ok(shortcut) = Shortcut::from_str(default_hotkey) {
+                        let _ = app_handle.global_shortcut().register(shortcut);
+                        let mut current = state.current_shortcut.lock().unwrap();
+                        *current = Some(shortcut);
+                        println!("Registered default hotkey: {}", default_hotkey);
+                    }
+                }
+            } else {
+                println!("No settings.json found or failed to load, using defaults.");
+                // Register default shortcut
+                let state = app_handle.state::<AppState>();
+                use std::str::FromStr;
+                let default_hotkey = "Ctrl+Shift+R";
+                if let Ok(shortcut) = Shortcut::from_str(default_hotkey) {
+                    let _ = app_handle.global_shortcut().register(shortcut);
+                    let mut current = state.current_shortcut.lock().unwrap();
+                    *current = Some(shortcut);
+                }
+            }
 
             // Setup System Tray
             let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
