@@ -1,0 +1,9 @@
+numpy
+openwakeword
+SpeechRecognition
+pyaudio
+thefuzz
+PyAutoGUI
+PyGetWindow
+onnxruntime
+pyinstaller
