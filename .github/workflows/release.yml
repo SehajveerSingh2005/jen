@@ -1,0 +1,98 @@
+name: 'publish'
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: set version from tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          echo "Building version: $version"
+          
+          # Update package.json
+          $pkg = Get-Content package.json | ConvertFrom-Json
+          $pkg.version = $version
+          $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json
+          
+          # Update tauri.conf.json
+          $tauri = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
+          $tauri.version = $version
+          $tauri | ConvertTo-Json -Depth 10 | Set-Content src-tauri/tauri.conf.json
+          
+          echo "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: install python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy openwakeword SpeechRecognition pyaudio thefuzz PyAutoGUI PyGetWindow onnxruntime pyinstaller
+
+      - name: build sidecar
+        run: python src-tauri/build_sidecar.py
+
+      - name: check sidecar
+        run: dir src-tauri/binaries
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v${{ env.VERSION }}
+          releaseName: 'Jen v${{ env.VERSION }}'
+          releaseBody: |
+            ## What's New
+            See the changelog for details on this release.
+            
+            ### Installation
+            1. Download the `.msi` or `.exe` below.
+            2. Run the installer.
+            3. Jen will start automatically!
+          releaseDraft: true
+          prerelease: false
+          args: '--target x86_64-pc-windows-msvc'

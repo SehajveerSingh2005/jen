@@ -53,6 +53,15 @@
     ],
     "externalBin": [
       "stt"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/sehaz/jen/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI4RTA1OTlGNjREN0UwN0UKUldSKzROZGtuMW5nS0JmcFFhbXpmYXRaS2d4aGVGR2U4RXVzWTRDbmovNXdPRXh6Rkpib2M4SisK"
+    }
   }
 }

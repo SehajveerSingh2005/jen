@@ -36,3 +36,6 @@ pnpm-debug.log*
 *.local
 .env
 .env.*
+
+jen.key
+jen.key.pub

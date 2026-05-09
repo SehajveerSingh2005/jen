@@ -164,6 +164,7 @@ pub fn run() {
     }
 
     builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(
