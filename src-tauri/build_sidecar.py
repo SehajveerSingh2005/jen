@@ -9,9 +9,9 @@ def build():
     os.chdir(current_dir)
 
     # Define paths
-    script_path = "stt.py"
-    model_path = "hey_jen.onnx"
-    output_dir = "binaries"
+    script_path = os.path.abspath("stt.py")
+    model_path = os.path.abspath("hey_jen.onnx")
+    output_dir = os.path.abspath("binaries")
     
     # Get target triple from rustc
     try:
@@ -28,68 +28,46 @@ def build():
         os.makedirs(output_dir)
 
     # PyInstaller command
-    oww_data = None
-    try:
-        import openwakeword
-        pkg_path = os.path.dirname(openwakeword.__file__)
-        print(f"DEBUG: openwakeword found at {pkg_path}")
-        
-        # Possible locations for models
-        possible_model_paths = [
-            os.path.join(pkg_path, "resources", "models"),
-            os.path.join(pkg_path, "models")
-        ]
-        
-        for p in possible_model_paths:
-            if os.path.exists(p):
-                print(f"DEBUG: Found models at {p}")
-                # Use absolute path to avoid ambiguity
-                abs_p = os.path.abspath(p)
-                # Calculate the relative destination inside the app
-                rel_dest = os.path.relpath(p, pkg_path)
-                oww_data = f"{abs_p};openwakeword/{rel_dest}"
-                break
-        
-        if not oww_data:
-            print("WARNING: Could not find openwakeword models directory!")
-            
-    except ImportError:
-        print("openwakeword not found, attempting to build without specific model path...")
-    
+    # We rely on --collect-all for openwakeword to avoid manual path errors in CI
     cmd = [
         "pyinstaller",
         "--onefile",
         "--noconsole",
-        f"--add-data={os.path.abspath(model_path)};.",
-    ]
-
-    if oww_data:
-        print(f"DEBUG: Adding data: {oww_data}")
-        cmd.append(f"--add-data={oww_data}")
-
-    cmd.extend([
+        f"--add-data={model_path};.",
         "--collect-all=openwakeword",
         "--hidden-import=openwakeword",
         "--hidden-import=onnxruntime",
         "--hidden-import=speech_recognition",
         "--hidden-import=pyaudio",
         "--name=stt",
-        "stt.py"
-    ])
+        script_path
+    ]
+
+    print(f"Running command: {' '.join(cmd)}")
 
     # Run PyInstaller
     subprocess.run(cmd, check=True)
 
     # Move and rename the binary
-    dist_path = os.path.join("dist", "stt.exe")
+    # PyInstaller puts output in 'dist' relative to current_dir
+    dist_exe = os.path.join("dist", "stt.exe")
     final_path = os.path.join(output_dir, binary_name)
+
+    if not os.path.exists(dist_exe):
+        print(f"ERROR: PyInstaller failed to create {dist_exe}")
+        sys.exit(1)
 
     if os.path.exists(final_path):
         os.remove(final_path)
     
-    shutil.move(dist_path, final_path)
+    shutil.move(dist_exe, final_path)
 
     print(f"Success! Sidecar built at: {final_path}")
+
+    # Final verification for Tauri
+    if not os.path.exists(final_path):
+        print(f"ERROR: Final binary missing at {final_path}")
+        sys.exit(1)
 
     # Cleanup build artifacts
     shutil.rmtree("build", ignore_errors=True)

@@ -11,7 +11,7 @@ export default defineConfig(async ({ mode }) => ({
   plugins: [react(), tailwindcss()],
 
   // GitHub Pages deployment base path
-  base: mode === "production" ? "/jen/" : "/",
+  base: process.env.GITHUB_PAGES ? "/jen/" : "/",
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   clearScreen: false,
