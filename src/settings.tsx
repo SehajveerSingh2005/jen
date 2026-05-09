@@ -4,8 +4,9 @@ import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { load } from "@tauri-apps/plugin-store";
-import { Settings as SettingsIcon, Bell, Rocket, X, Mic, Keyboard, RotateCcw } from "lucide-react";
+import { Settings as SettingsIcon, Bell, Rocket, X, Keyboard, RotateCcw } from "lucide-react";
 import "./index.css";
+
 
 const appWindow = getCurrentWindow();
 
@@ -21,12 +22,14 @@ function SettingsApp() {
         const autostartEnabled = await isEnabled();
         setAutostart(autostartEnabled);
 
-        const store = await load("settings.json", { autoSave: true });
+        const store = await load("settings.json", { autoSave: true, defaults: {} });
         const savedHotkey = await store.get<string>("activation_hotkey");
         if (savedHotkey) setHotkey(savedHotkey);
 
         const savedAudioCues = await store.get<boolean>("audio_feedback");
-        if (savedAudioCues !== null) setAudioCues(savedAudioCues);
+        if (typeof savedAudioCues === "boolean") {
+          setAudioCues(savedAudioCues);
+        }
       } catch (e) {
         console.error("Failed to load settings:", e);
       }
