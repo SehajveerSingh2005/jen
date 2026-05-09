@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "github-actions-docs": {
+      "source": "xixu-me/skills",
+      "sourceType": "github",
+      "skillPath": "skills/github-actions-docs/SKILL.md",
+      "computedHash": "ead3fa2aff18e829c468dee593e1dc897aa95dc7a07d9ff8ff9f30c296b19af8"
+    },
     "rust-best-practices": {
       "source": "apollographql/skills",
       "sourceType": "github",

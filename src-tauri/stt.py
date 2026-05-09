@@ -331,6 +331,15 @@ def parse_intent(text):
         return {"intent": detected_intent, "params": params, "score": highest_score}
     return None
 
+def get_resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
 def listen_and_transcribe():
     try:
         from openwakeword.utils import download_models
@@ -338,8 +347,7 @@ def listen_and_transcribe():
     except:
         pass
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(script_dir, "hey_jen.onnx")
+    model_path = get_resource_path("hey_jen.onnx")
     wakeword_models = [model_path] if os.path.exists(model_path) else ["hey_jarvis"]
     
     oww_model = Model(wakeword_models=wakeword_models, inference_framework="onnx")

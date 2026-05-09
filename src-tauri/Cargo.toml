@@ -25,6 +25,8 @@ rand = "=0.8.6"
 half = "=2.3.1"
 thiserror = "2"
 tokio = { version = "1", features = ["time"] }
+rodio = { version = "0.19", features = ["mp3"] }
+lazy_static = "1.5"
 log = "0.4"
 env_logger = "0.11"
 tauri-plugin-shell = "2"
@@ -36,5 +38,6 @@ windows = { version = "0.62.2", features = [
     "Foundation",
     "Foundation_Collections",
     "Win32_System_Threading",
-    "Win32_UI_Input_KeyboardAndMouse"
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Media_Audio"
 ] }

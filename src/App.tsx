@@ -59,19 +59,17 @@ function App() {
         {state !== "idle" && (
           <motion.div 
             key="orb-container"
-            initial={{ opacity: 0, scale: 0.2 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0, transition: { duration: 0.2, ease: "easeIn" } }}
+            initial={{ opacity: 0, scale: 0.5, filter: "blur(15px)" }}
+            animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+            exit={{ opacity: 0, scale: 0.3, filter: "blur(15px)" }}
             transition={{ 
-              type: "spring", 
-              stiffness: 600, 
-              damping: 18,
-              mass: 0.8
+              duration: 0.5,
+              ease: [0.34, 1.56, 0.64, 1], // Custom "Overshoot" ease for a premium pop
             }}
-            className="w-36 h-36 overflow-visible"
+            className="w-48 h-48 overflow-visible"
           >
             <div className="w-full h-full flex items-center justify-center">
-              <Orb {...orbProps} className="w-32 h-32" />
+              <Orb {...orbProps} className="w-48 h-48" />
             </div>
           </motion.div>
         )}
