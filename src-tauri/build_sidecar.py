@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import shutil
+import glob
 
 def build():
     # Absolute path to project root and src-tauri
@@ -18,26 +19,66 @@ def build():
     
     # Run PyInstaller
     script_path = os.path.join(src_tauri_dir, "stt.py")
-    model_path = os.path.join(src_tauri_dir, "hey_jen.onnx")
+    hey_jen_model = os.path.join(src_tauri_dir, "hey_jen.onnx")
 
-    import openwakeword
-    oww_root = os.path.dirname(openwakeword.__file__)
-    resources_path = os.path.join(oww_root, "resources")
-    
-    if not os.path.exists(resources_path):
-        print(f"ERROR: openwakeword resources not found at {resources_path}")
-        # In CI, we might need to download them or they might be in a different spot
-        # but usually they are inside the package.
+    # Find openwakeword resources
+    try:
+        import openwakeword
+        oww_root = os.path.dirname(openwakeword.__file__)
+    except ImportError:
+        print("ERROR: openwakeword not installed")
         sys.exit(1)
-
-    print(f"Bundling openwakeword resources from: {resources_path}")
     
+    # Create a local models directory to collect everything we need
+    # This avoids issues with finding them in site-packages during build
+    temp_models_dir = os.path.join(src_tauri_dir, "temp_models")
+    if os.path.exists(temp_models_dir):
+        shutil.rmtree(temp_models_dir)
+    os.makedirs(temp_models_dir)
+
+    def collect_model(pattern, dest_name):
+        search_patterns = [
+            os.path.join(oww_root, "resources", "models", pattern),
+            os.path.join(oww_root, "models", pattern),
+            os.path.expanduser(f"~/.openwakeword/{pattern}"),
+            os.path.expanduser(f"~/.openwakeword/models/{pattern}"),
+        ]
+        
+        for p in search_patterns:
+            matches = glob.glob(p)
+            if matches:
+                # Filter for .onnx if pattern doesn't specify
+                onnx_matches = [m for m in matches if m.endswith(".onnx")]
+                if onnx_matches:
+                    target = os.path.join(temp_models_dir, dest_name)
+                    shutil.copy2(onnx_matches[0], target)
+                    print(f"Collected {dest_name} from {onnx_matches[0]}")
+                    return True
+        return False
+
+    print("Collecting required openwakeword models...")
+    melspec = collect_model("melspectrogram.onnx", "melspectrogram.onnx")
+    embed = collect_model("embedding_model.onnx", "embedding_model.onnx")
+    jarvis = collect_model("hey_jarvis*.onnx", "hey_jarvis.onnx")
+    
+    if not (melspec and embed):
+        print("WARNING: Could not find base models. Attempting to download...")
+        try:
+            from openwakeword.utils import download_models
+            download_models()
+            # Try again
+            collect_model("melspectrogram.onnx", "melspectrogram.onnx")
+            collect_model("embedding_model.onnx", "embedding_model.onnx")
+            collect_model("hey_jarvis*.onnx", "hey_jarvis.onnx")
+        except Exception as e:
+            print(f"Failed to download models: {e}")
+
     cmd = [
         "pyinstaller",
         "--onefile",
         "--noconsole",
-        f"--add-data={model_path};.",
-        f"--add-data={resources_path};openwakeword/resources",
+        f"--add-data={hey_jen_model};.",
+        f"--add-data={temp_models_dir};models",
         "--collect-all=openwakeword",
         "--hidden-import=openwakeword",
         "--hidden-import=onnxruntime",
@@ -50,24 +91,32 @@ def build():
     print(f"Compiling sidecar...")
     subprocess.run(cmd, check=True)
 
+    # Cleanup temp models
+    shutil.rmtree(temp_models_dir)
+
     generated_exe = os.path.join(src_tauri_dir, "dist", "stt.exe")
 
     if not os.path.exists(generated_exe):
         print("ERROR: PyInstaller failed to create stt.exe")
         sys.exit(1)
 
-    # List of all possible locations Tauri v2 might look
+    # List of essential locations Tauri v2 looks
     destinations = [
         os.path.join(src_tauri_dir, "binaries", binary_name),
-        os.path.join(src_tauri_dir, binary_name),
-        os.path.join(project_root, "binaries", binary_name),
-        os.path.join(project_root, binary_name)
+        os.path.join(project_root, "binaries", binary_name)
     ]
 
     for dest in destinations:
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         shutil.copy2(generated_exe, dest)
         print(f"Deployed to: {dest}")
+
+    # Cleanup
+    shutil.rmtree(os.path.join(src_tauri_dir, "build"), ignore_errors=True)
+    shutil.rmtree(os.path.join(src_tauri_dir, "dist"), ignore_errors=True)
+    spec_file = os.path.join(src_tauri_dir, "stt.spec")
+    if os.path.exists(spec_file):
+        os.remove(spec_file)
 
     print(f"--- Sidecar Deployed Successfully ---")
 

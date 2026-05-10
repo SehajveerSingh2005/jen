@@ -353,11 +353,31 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def listen_and_transcribe():
-    model_path = os.path.abspath(get_resource_path("hey_jen.onnx"))
-    wakeword_models = [model_path] if os.path.exists(model_path) else ["hey_jarvis"]
+    # Use explicit paths for all models to be "bulletproof" in packaged app
+    hey_jen_path = get_resource_path("hey_jen.onnx")
+    hey_jarvis_path = get_resource_path("models/hey_jarvis.onnx")
+    melspec_path = get_resource_path("models/melspectrogram.onnx")
+    embedding_path = get_resource_path("models/embedding_model.onnx")
     
-    # Load model from resource path or fallback
-    oww_model = Model(wakeword_models=wakeword_models, inference_framework="onnx")
+    # Determine which wakeword models to load
+    wakeword_models = []
+    if os.path.exists(hey_jen_path):
+        wakeword_models.append(hey_jen_path)
+    
+    # Add Jarvis as fallback ONLY if Jen is missing
+    if not wakeword_models:
+        if os.path.exists(hey_jarvis_path):
+            wakeword_models.append(hey_jarvis_path)
+        else:
+            wakeword_models.append("hey_jarvis") # Last resort fallback
+    
+    # Load model with explicit base model paths
+    oww_model = Model(
+        wakeword_models=wakeword_models,
+        melspec_model_path=melspec_path if os.path.exists(melspec_path) else None,
+        embedding_model_path=embedding_path if os.path.exists(embedding_path) else None,
+        inference_framework="onnx"
+    )
     r = sr.Recognizer()
     
     FORMAT = pyaudio.paInt16
