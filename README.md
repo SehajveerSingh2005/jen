@@ -34,9 +34,7 @@
 ## Preview
 
 <div align="center">
-  <!-- Replace these with actual GIFs/Screenshots -->
-  <img src="https://via.placeholder.com/600x300.png?text=Jen+Orb+Interaction+Preview" alt="Jen Interaction" width="600" />
-  <p><i>Jen responding to a voice command at the bottom of the screen.</i></p>
+  <img width="1920" height="1080" alt="jen-1" src="https://github.com/user-attachments/assets/31642e52-8369-4118-8358-5500c9921698" />
 </div>
 
 ---
