@@ -19,12 +19,25 @@ def build():
     # Run PyInstaller
     script_path = os.path.join(src_tauri_dir, "stt.py")
     model_path = os.path.join(src_tauri_dir, "hey_jen.onnx")
+
+    import openwakeword
+    oww_root = os.path.dirname(openwakeword.__file__)
+    resources_path = os.path.join(oww_root, "resources")
+    
+    if not os.path.exists(resources_path):
+        print(f"ERROR: openwakeword resources not found at {resources_path}")
+        # In CI, we might need to download them or they might be in a different spot
+        # but usually they are inside the package.
+        sys.exit(1)
+
+    print(f"Bundling openwakeword resources from: {resources_path}")
     
     cmd = [
         "pyinstaller",
         "--onefile",
         "--noconsole",
         f"--add-data={model_path};.",
+        f"--add-data={resources_path};openwakeword/resources",
         "--collect-all=openwakeword",
         "--hidden-import=openwakeword",
         "--hidden-import=onnxruntime",

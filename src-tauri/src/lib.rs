@@ -24,6 +24,7 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 #[serde(rename_all = "lowercase")]
 pub enum OrbState {
     Idle,
+    Startup,
     Listening,
     Recording,
     Processing,
@@ -163,6 +164,12 @@ pub fn run() {
     }
 
     builder
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
@@ -363,6 +370,35 @@ pub fn run() {
                         let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
                     }
                 }
+
+                // Show window briefly on startup to signal activity
+                let handle = app.handle().clone();
+                let state_lock = handle.state::<AppState>();
+                {
+                    let mut s = state_lock.state.lock().unwrap();
+                    *s = OrbState::Startup;
+                }
+                play_wake_sound(&handle);
+                
+                let _ = handle.emit("orb-state-change", "startup");
+                
+                unsafe {
+                    let _ = ShowWindow(HWND(hwnd.0), SW_SHOWNA);
+                }
+                
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    if let Some(window) = handle.get_webview_window("main") {
+                        let state_lock = handle.state::<AppState>();
+                        let mut s = state_lock.state.lock().unwrap();
+                        // Only hide if we are still in startup phase (didn't get a wake word)
+                        if matches!(*s, OrbState::Startup) {
+                            *s = OrbState::Idle;
+                            let _ = window.hide();
+                            handle.emit("orb-state-change", "idle").unwrap();
+                        }
+                    }
+                });
             }
 
             // Start the persistent STT sidecar with auto-restart logic
