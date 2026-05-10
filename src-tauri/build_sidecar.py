@@ -14,7 +14,15 @@ def build():
     print(f"Project Root: {project_root}")
     print(f"src-tauri: {src_tauri_dir}")
 
-    target_triple = "x86_64-pc-windows-msvc"
+    # Get target triple
+    try:
+        # Try to get it from rustc for maximum accuracy
+        target_triple = subprocess.check_output(["rustc", "-vV"]).decode().split("host: ")[1].split("\n")[0].strip()
+        print(f"Detected target triple: {target_triple}")
+    except Exception as e:
+        print(f"Warning: Could not detect target triple via rustc: {e}")
+        target_triple = "x86_64-pc-windows-msvc"
+    
     binary_name = f"stt-{target_triple}.exe"
     
     # Run PyInstaller
@@ -100,10 +108,12 @@ def build():
         print("ERROR: PyInstaller failed to create stt.exe")
         sys.exit(1)
 
-    # List of essential locations Tauri v2 looks
+    # List of destinations to ensure Tauri finds it
     destinations = [
-        os.path.join(src_tauri_dir, "binaries", binary_name),
-        os.path.join(project_root, "binaries", binary_name)
+        os.path.join(src_tauri_dir, "binaries", binary_name), # Standard v2 location
+        os.path.join(src_tauri_dir, binary_name),            # Root of src-tauri (fallback)
+        os.path.join(project_root, "binaries", binary_name), # Root of project (fallback)
+        os.path.join(project_root, binary_name)              # Root of project (fallback)
     ]
 
     for dest in destinations:

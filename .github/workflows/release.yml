@@ -40,18 +40,28 @@ jobs:
           $tag = "${{ github.ref_name }}"
           $version = $tag.TrimStart('v')
           echo "Building version: $version"
+          echo "VERSION=$version" >> $env:GITHUB_ENV
+          
+          # Use Python for reliable JSON editing
+          python -c "
+          import json, os
+          v = '$version'
           
           # Update package.json
-          $pkg = Get-Content package.json | ConvertFrom-Json
-          $pkg.version = $version
-          $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json
+          with open('package.json', 'r') as f:
+              pkg = json.load(f)
+          pkg['version'] = v
+          with open('package.json', 'w') as f:
+              json.dump(pkg, f, indent=2)
           
           # Update tauri.conf.json
-          $tauri = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
-          $tauri.version = $version
-          $tauri | ConvertTo-Json -Depth 10 | Set-Content -Encoding UTF8 src-tauri/tauri.conf.json
-          
-          echo "VERSION=$version" >> $env:GITHUB_ENV
+          conf_path = 'src-tauri/tauri.conf.json'
+          with open(conf_path, 'r', encoding='utf-8') as f:
+              conf = json.load(f)
+          conf['version'] = v
+          with open(conf_path, 'w', encoding='utf-8') as f:
+              json.dump(conf, f, indent=2, ensure_ascii=False)
+          "
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
