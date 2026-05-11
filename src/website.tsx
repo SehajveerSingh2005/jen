@@ -9,7 +9,6 @@ import {
   SkipBack, 
   SkipForward, 
   Search,
-  Globe,
   Monitor,
   FileText,
   MessageSquare,
