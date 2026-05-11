@@ -1,16 +1,16 @@
 import React, { useState, useEffect, Suspense } from "react";
 import ReactDOM from "react-dom/client";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence, useScroll, useTransform } from "framer-motion";
 import { Orb, AgentState } from "./components/Orb";
 import { useTexture } from "@react-three/drei";
 import { 
-  Cpu, 
-  Mic, 
-  Zap, 
-  ArrowRight,
+  Play, 
+  SkipBack, 
+  SkipForward, 
+  Mail, 
+  Moon,
   Monitor,
-  Layout,
-  MousePointer2
+  ArrowRight
 } from "lucide-react";
 import "./Website.css";
 
@@ -34,29 +34,67 @@ const Github = ({ className }: { className?: string }) => (
 const GITHUB_URL = "https://github.com/SehajveerSingh2005/jen";
 const RELEASES_URL = `${GITHUB_URL}/releases/latest`;
 
-function Website() {
-  const [orbScenario, setOrbScenario] = useState<{ colors: [string, string], state: AgentState }>({
-    colors: ["#f8fafc", "#94a3b8"],
-    state: "thinking"
-  });
+// Define the scroll sections, their associated chat bubble, and orb state
+const SECTIONS = [
+  { 
+    id: 'hero', 
+    bubble: null, 
+    state: 'thinking' as AgentState, 
+    colors: ["#f8fafc", "#94a3b8"] as [string, string] 
+  },
+  { 
+    id: 'music', 
+    bubble: "play God's Plan by Drake", 
+    state: 'listening' as AgentState, 
+    colors: ["#bae6fd", "#38bdf8"] as [string, string]
+  },
+  { 
+    id: 'emails', 
+    bubble: "summarize my recent emails", 
+    state: 'thinking' as AgentState, 
+    colors: ["#f3e8ff", "#a855f7"] as [string, string]
+  },
+  { 
+    id: 'focus', 
+    bubble: "turn on focus mode", 
+    state: 'talking' as AgentState, 
+    colors: ["#ecfdf5", "#10b981"] as [string, string]
+  },
+  {
+    id: 'download',
+    bubble: null,
+    state: 'thinking' as AgentState,
+    colors: ["#f8fafc", "#94a3b8"] as [string, string]
+  }
+];
 
+function Website() {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [windowHeight, setWindowHeight] = useState(1000);
+  
   useEffect(() => {
-    const scenarios: { colors: [string, string], state: AgentState }[] = [
-      { colors: ["#f8fafc", "#94a3b8"], state: "thinking" },
-      { colors: ["#bae6fd", "#38bdf8"], state: "listening" },
-      { colors: ["#f3e8ff", "#a855f7"], state: "thinking" },
-      { colors: ["#ecfdf5", "#10b981"], state: "talking" },
-    ];
-    let i = 0;
-    const interval = setInterval(() => {
-      i = (i + 1) % scenarios.length;
-      setOrbScenario(scenarios[i]);
-    }, 4000);
-    return () => clearInterval(interval);
+    setWindowHeight(window.innerHeight);
+    const handleResize = () => setWindowHeight(window.innerHeight);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  const { scrollY } = useScroll();
+  
+  const scrollDistance = windowHeight * 0.5;
+  
+  // When width/height is 380, center is at 380/2 = 190.
+  // Container bottom is at 32px. Center from bottom = 190 + 32 = 222px.
+  // We want the orb center to be 45vh from the bottom in the Hero section.
+  const targetCenter = 0.45 * windowHeight;
+  const startY = -(targetCenter - 222);
+
+  // Animate width and height directly for perfect DOM layout
+  const orbSize = useTransform(scrollY, [0, scrollDistance], [380, 180]);
+  const orbY = useTransform(scrollY, [0, scrollDistance], [startY, 0]);
+
   return (
-    <div className="min-h-screen relative overflow-x-hidden bg-[#fcfcfc]">
+    <div className="min-h-screen relative overflow-x-hidden bg-[var(--bg-color)] font-sans selection:bg-black selection:text-white">
       <div className="grain-overlay" />
       
       {/* Navigation */}
@@ -69,191 +107,230 @@ function Website() {
           <span className="font-medium tracking-tight text-black">jen</span>
         </div>
         <div className="flex items-center gap-6 text-sm font-medium text-black/60">
-          <a href="#features" className="hover:text-black transition-colors">Features</a>
+          <a href="#download" className="hover:text-black transition-colors">Download</a>
           <a href={GITHUB_URL} className="flex items-center gap-1.5 hover:text-black transition-colors">
             <Github className="w-4 h-4" />
             GitHub
           </a>
-          <a href="#download" className="btn-primary py-2 px-5 text-xs shadow-none">Download</a>
+          <a href={RELEASES_URL} className="btn-primary py-2 px-5 text-xs shadow-none">Get Started</a>
         </div>
       </nav>
 
-      <main>
-        {/* Hero Section */}
-        <section className="pt-48 pb-24 px-8 max-w-7xl mx-auto flex flex-col items-center text-center">
+      {/* Fixed Anchor (Orb & Chat Bubble) */}
+      <div className="fixed bottom-[32px] left-1/2 -translate-x-1/2 z-50 flex flex-col items-center pointer-events-none">
+        
+        {/* Animated Chat Bubble */}
+        <div className="h-[60px] flex items-end justify-center mb-6">
+          <AnimatePresence mode="wait">
+            {SECTIONS[activeIdx].bubble && (
+              <motion.div 
+                key={SECTIONS[activeIdx].bubble}
+                initial={{ opacity: 0, y: 15, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -15, scale: 0.9 }}
+                transition={{ duration: 0.4, type: "spring", bounce: 0.4 }}
+                className="px-6 py-3 bg-white/70 backdrop-blur-2xl border border-white/50 shadow-[0_8px_32px_rgba(0,0,0,0.08)] rounded-full text-[15px] font-medium text-black pointer-events-auto whitespace-nowrap"
+              >
+                "{SECTIONS[activeIdx].bubble}"
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Dynamic Scroll-Linked Orb */}
+        <motion.div 
+          className="relative pointer-events-auto drop-shadow-2xl cursor-pointer"
+          style={{
+            width: orbSize,
+            height: orbSize,
+            y: orbY
+          }}
+        >
+          <div className="absolute inset-0 bg-sky-400/20 blur-[30px] rounded-full" />
+          <Suspense fallback={<div className="w-full h-full rounded-full bg-black/5 animate-pulse" />}>
+            <Orb 
+              className="w-full h-full" 
+              colors={SECTIONS[activeIdx].colors} 
+              agentState={SECTIONS[activeIdx].state}
+              resizeDebounce={0}
+            />
+          </Suspense>
+        </motion.div>
+      </div>
+
+      <main className="relative w-full pb-[20vh]">
+        
+        {/* 1. Hero Section */}
+        <motion.section 
+          className="min-h-screen flex flex-col items-center justify-start pt-[12vh] relative z-10"
+          onViewportEnter={() => setActiveIdx(0)}
+          viewport={{ margin: "-50% 0px -50% 0px" }}
+        >
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            className="text-center"
           >
-            <h1 className="hero-text">
-              Meet Jen.<br />
-              <span className="text-[var(--text-muted)]">Your PC Companion.</span>
+            <h1 className="text-[5.5rem] md:text-[7.5rem] font-medium tracking-tight leading-[0.9] text-black mb-4">
+              Meet Jen.
             </h1>
+            <p className="text-xl md:text-3xl text-[var(--text-muted)] font-light tracking-tight max-w-sm md:max-w-none mx-auto">
+              Intelligence that feels <span className="text-black italic pr-1">alive</span>.
+            </p>
           </motion.div>
-
-          <motion.p 
-            className="sub-text"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+          
+          <motion.div 
+            className="absolute bottom-12 opacity-30 flex flex-col items-center gap-2"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.3 }}
+            transition={{ delay: 1, duration: 1 }}
           >
-            A minimal, ambient AI assistant that lives on your desktop. 
-            Unobtrusive by design, powerful by nature.
-          </motion.p>
-
-          <div className="orb-viewport-stable" style={{ width: '380px', height: '380px' }}>
-            <motion.div 
-              className="w-full h-full relative z-10 flex items-center justify-center"
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ 
-                duration: 0.5, 
-                ease: [0.34, 1.56, 0.64, 1] // Snappy overshoot pop
-              }}
-            >
-              <div className="orb-glow opacity-50" />
-              <Suspense fallback={<div className="w-full h-full rounded-full bg-black/5 animate-pulse" />}>
-                <Orb 
-                  className="w-full h-full" 
-                  colors={orbScenario.colors} 
-                  agentState={orbScenario.state}
-                />
-              </Suspense>
-            </motion.div>
-          </div>
-
-          <motion.div
-            className="flex flex-col md:flex-row gap-4 mt-12"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.8, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <a href="#download" className="btn-primary flex items-center gap-2 text-white">
-              Get Started
-              <ArrowRight className="w-4 h-4" />
-            </a>
-            <a href={GITHUB_URL} className="btn-secondary flex items-center gap-2">
-              View Source
-              <Github className="w-4 h-4" />
-            </a>
+            <span className="text-[10px] uppercase tracking-[0.2em] font-bold">Scroll</span>
+            <div className="w-[1px] h-12 bg-black bg-gradient-to-b from-black to-transparent" />
           </motion.div>
-        </section>
+        </motion.section>
 
-        {/* "PC Companion" Context Section */}
-        <section className="py-32 px-8 bg-[#F2F2F7]/50">
-          <div className="max-w-6xl mx-auto">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-24 items-center">
-              <div className="space-y-8">
-                <h2 className="text-4xl md:text-5xl font-medium tracking-tight text-black">Always there,<br />never in the way.</h2>
-                <p className="text-lg text-[var(--text-muted)] font-light leading-relaxed">
-                  Jen isn't just another app window. It's an ambient presence on your screen that responds to your voice and helps you navigate your digital life without breaking your flow.
-                </p>
-                <ul className="space-y-6">
-                  {[
-                    { icon: MousePointer2, text: "Click-through transparency" },
-                    { icon: Layout, text: "Lives right in the center of your flow" },
-                    { icon: Monitor, text: "Cross-platform consistency" }
-                  ].map((item, i) => (
-                    <li key={i} className="flex items-center gap-4 text-sm font-medium text-black">
-                      <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm border border-black/5">
-                        <item.icon className="w-4 h-4 opacity-40" />
-                      </div>
-                      {item.text}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              
-              <div className="mockup-container">
-                <div className="mockup-wallpaper" />
-                <div className="absolute inset-0 flex flex-col justify-end items-center pb-12">
-                  {/* JEN CENTERED AT BOTTOM */}
-                  <div className="w-20 h-20 relative">
-                    <div className="absolute inset-0 bg-sky-400/20 blur-3xl rounded-full animate-pulse" />
-                    <Suspense fallback={null}>
-                      <Orb colors={["#bae6fd", "#38bdf8"]} agentState="listening" className="w-full h-full" />
-                    </Suspense>
-                  </div>
-                </div>
+        {/* 2. Showcase: Music */}
+        <motion.section 
+          className="min-h-screen flex items-center justify-center relative z-10"
+          onViewportEnter={() => setActiveIdx(1)}
+          viewport={{ margin: "-50% 0px -50% 0px" }}
+        >
+          <motion.div 
+            className="showcase-widget w-[320px]"
+            initial={{ opacity: 0, scale: 0.9, y: 40 }}
+            whileInView={{ opacity: 1, scale: 1, y: 0 }}
+            viewport={{ margin: "-20% 0px -20% 0px" }}
+            transition={{ type: "spring", stiffness: 100, damping: 20 }}
+          >
+            <div className="w-full aspect-square rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 mb-6 shadow-inner relative overflow-hidden">
+              {/* Minimalist Vinyl/CD visual */}
+              <div className="absolute -right-8 -bottom-8 w-48 h-48 border-[16px] border-black/10 rounded-full" />
+              <div className="absolute right-4 bottom-4 w-12 h-12 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center">
+                 <div className="w-3 h-3 bg-indigo-600 rounded-full" />
               </div>
             </div>
-          </div>
-        </section>
-
-        {/* Features Grid */}
-        <section id="features" className="py-32 px-8 max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12 text-center md:text-left">
-            <div className="feature-item">
-              <div className="w-12 h-12 mb-8 rounded-2xl bg-[#f5f5f7] flex items-center justify-center border border-black/5 mx-auto md:mx-0">
-                <Mic className="w-5 h-5 opacity-60 text-black" />
-              </div>
-              <h3 className="feature-title text-xl mb-4 text-black">Voice First</h3>
-              <p className="feature-desc font-light text-[var(--text-muted)]">Natural language processing that understands your intent, not just your words.</p>
-            </div>
-            <div className="feature-item">
-              <div className="w-12 h-12 mb-8 rounded-2xl bg-[#f5f5f7] flex items-center justify-center border border-black/5 mx-auto md:mx-0">
-                <Cpu className="w-5 h-5 opacity-60 text-black" />
-              </div>
-              <h3 className="feature-title text-xl mb-4 text-black">Local Intelligence</h3>
-              <p className="feature-desc font-light text-[var(--text-muted)]">Fast, secure, and private. Much of Jen's processing happens right on your machine.</p>
-            </div>
-            <div className="feature-item">
-              <div className="w-12 h-12 mb-8 rounded-2xl bg-[#f5f5f7] flex items-center justify-center border border-black/5 mx-auto md:mx-0">
-                <Zap className="w-5 h-5 opacity-60 text-black" />
-              </div>
-              <h3 className="feature-title text-xl mb-4 text-black">Instant Response</h3>
-              <p className="feature-desc font-light text-[var(--text-muted)]">Zero friction. Activate with a hotkey or voice and get what you need instantly.</p>
-            </div>
-          </div>
-        </section>
-
-        {/* Download Section */}
-        <section id="download" className="py-48 px-8 bg-black text-white rounded-[4rem] mx-4 my-4 overflow-hidden relative">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[20vw] font-bold text-white/[0.03] select-none pointer-events-none tracking-tighter uppercase whitespace-nowrap">
-            Download
-          </div>
-
-          <div className="max-w-4xl mx-auto relative z-10 text-center">
-            <h2 className="text-5xl md:text-7xl font-medium tracking-tight mb-16">Ready to meet Jen?</h2>
+            <h3 className="text-xl font-bold mb-1 text-black">God's Plan</h3>
+            <p className="text-sm text-[var(--text-muted)] font-medium mb-6">Drake</p>
             
-            <div className="flex flex-col md:flex-row gap-6 text-left">
-              <a href={RELEASES_URL} className="flex-1 p-10 bg-white text-black rounded-[2.5rem] flex flex-col items-start transition-all hover:scale-[1.02] active:scale-[0.98]">
-                <div className="flex items-center justify-between w-full mb-10">
-                  <Monitor className="w-8 h-8 opacity-80" />
-                  <ArrowRight className="w-5 h-5 -rotate-45" />
-                </div>
-                <span className="text-2xl font-bold">Windows x64</span>
-                <span className="text-sm opacity-40 font-medium">Stable v0.1.0 (.msi)</span>
-              </a>
-
-              <div className="flex-1 p-10 bg-white/5 border border-white/10 rounded-[2.5rem] flex flex-col items-start opacity-30">
-                <div className="flex items-center justify-between w-full mb-10">
-                  <Monitor className="w-8 h-8 opacity-40" />
-                </div>
-                <span className="text-2xl font-bold">macOS Silicon</span>
-                <span className="text-[10px] uppercase tracking-[0.2em] font-bold mt-2">Coming Soon</span>
-              </div>
+            <div className="w-full h-1.5 bg-black/5 rounded-full mb-6 overflow-hidden">
+              <motion.div 
+                className="w-1/3 h-full bg-black rounded-full" 
+                initial={{ width: "0%" }}
+                whileInView={{ width: "33%" }}
+                transition={{ duration: 1.5, ease: "easeOut" }}
+              />
             </div>
 
-            <a href={GITHUB_URL} className="mt-20 flex items-center gap-2 justify-center text-sm font-medium text-white/30 hover:text-white transition-colors">
-              <Github className="w-4 h-4" />
-              Open source on GitHub
-            </a>
-          </div>
-        </section>
-      </main>
+            <div className="flex items-center justify-center gap-8">
+              <SkipBack className="w-5 h-5 opacity-40 hover:opacity-100 transition-opacity cursor-pointer text-black" />
+              <div className="w-14 h-14 bg-[#1d1d1f] rounded-full flex items-center justify-center cursor-pointer hover:scale-105 transition-transform shadow-[0_8px_16px_rgba(0,0,0,0.2)]">
+                <Play className="w-5 h-5 text-white ml-1 fill-white" />
+              </div>
+              <SkipForward className="w-5 h-5 opacity-40 hover:opacity-100 transition-opacity cursor-pointer text-black" />
+            </div>
+          </motion.div>
+        </motion.section>
 
-      {/* Footer */}
-      <footer className="py-20 px-8 border-t border-[#e8e8ed] text-center">
-        <div className="flex items-center justify-center gap-2 mb-4 opacity-50 lowercase tracking-tight font-bold text-black">
-          <div className="w-4 h-4 bg-black rounded-full" />
-          jen
-        </div>
-        <p className="text-xs text-[var(--text-muted)] font-medium">
-          Made with love by Sehaz. © {new Date().getFullYear()} Jen AI.
-        </p>
-      </footer>
+        {/* 3. Showcase: Intelligence */}
+        <motion.section 
+          className="min-h-screen flex items-center justify-center relative z-10"
+          onViewportEnter={() => setActiveIdx(2)}
+          viewport={{ margin: "-50% 0px -50% 0px" }}
+        >
+          <motion.div 
+            className="showcase-widget w-[400px]"
+            initial={{ opacity: 0, scale: 0.9, y: 40 }}
+            whileInView={{ opacity: 1, scale: 1, y: 0 }}
+            viewport={{ margin: "-20% 0px -20% 0px" }}
+            transition={{ type: "spring", stiffness: 100, damping: 20 }}
+          >
+            <div className="flex items-center gap-4 mb-8">
+              <div className="w-12 h-12 bg-blue-500/10 rounded-[1.25rem] flex items-center justify-center">
+                <Mail className="w-6 h-6 text-blue-500" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-lg text-black">Inbox Summary</h3>
+                <p className="text-sm text-[var(--text-muted)]">3 unread emails</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="p-5 bg-white/50 rounded-2xl border border-white shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-blue-600">Action Required</p>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-black/30">Just Now</span>
+                </div>
+                <p className="text-[15px] text-black/80 leading-relaxed">Sarah requested your review on the Q3 marketing designs by 5 PM today.</p>
+              </div>
+              <div className="p-5 bg-black/[0.02] rounded-2xl border border-black/5">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-black">Newsletter</p>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-black/30">2h ago</span>
+                </div>
+                <p className="text-[15px] text-[var(--text-muted)] leading-relaxed">Framer released a new update regarding scroll-driven animations.</p>
+              </div>
+            </div>
+          </motion.div>
+        </motion.section>
+
+        {/* 4. Showcase: System Control */}
+        <motion.section 
+          className="min-h-screen flex items-center justify-center relative z-10"
+          onViewportEnter={() => setActiveIdx(3)}
+          viewport={{ margin: "-50% 0px -50% 0px" }}
+        >
+          <motion.div 
+            className="showcase-widget w-[320px] text-center"
+            initial={{ opacity: 0, scale: 0.9, y: 40 }}
+            whileInView={{ opacity: 1, scale: 1, y: 0 }}
+            viewport={{ margin: "-20% 0px -20% 0px" }}
+            transition={{ type: "spring", stiffness: 100, damping: 20 }}
+          >
+            <div className="w-20 h-20 bg-indigo-500 rounded-full flex items-center justify-center mx-auto mb-8 shadow-[0_12px_24px_rgba(99,102,241,0.3)]">
+              <Moon className="w-8 h-8 text-white fill-white" />
+            </div>
+            <h3 className="text-2xl font-bold mb-3 text-black">Focus Mode On</h3>
+            <p className="text-[15px] text-[var(--text-muted)] mb-10 leading-relaxed px-4">Notifications silenced until tomorrow morning.</p>
+            
+            <div className="w-16 h-9 bg-indigo-500 rounded-full p-1 mx-auto cursor-pointer shadow-inner">
+              <motion.div 
+                className="w-7 h-7 bg-white rounded-full shadow-sm"
+                initial={{ x: 0 }}
+                whileInView={{ x: 28 }}
+                viewport={{ margin: "-20% 0px -20% 0px" }}
+                transition={{ type: "spring", stiffness: 400, damping: 25, delay: 0.2 }}
+              />
+            </div>
+          </motion.div>
+        </motion.section>
+
+        {/* 5. Minimalist Download footer */}
+        <motion.section 
+          id="download"
+          className="min-h-screen flex flex-col items-center justify-center relative z-10"
+          onViewportEnter={() => setActiveIdx(4)}
+          viewport={{ margin: "-50% 0px -50% 0px" }}
+        >
+          <div className="max-w-3xl mx-auto text-center px-4">
+            <h2 className="text-5xl md:text-7xl font-medium tracking-tight mb-8 text-black">Ready to try Jen?</h2>
+            
+            <div className="flex flex-col sm:flex-row gap-4 justify-center mt-12">
+              <a href={RELEASES_URL} className="btn-primary flex items-center justify-center gap-3 py-5 px-10 text-lg">
+                <Monitor className="w-5 h-5" />
+                Download for Windows
+              </a>
+              <a href={GITHUB_URL} className="btn-secondary flex items-center justify-center gap-3 py-5 px-10 text-lg">
+                <Github className="w-5 h-5" />
+                View Source
+              </a>
+            </div>
+            <p className="text-xs uppercase tracking-widest font-bold text-black/30 mt-12">macOS Coming Soon</p>
+          </div>
+        </motion.section>
+
+      </main>
     </div>
   );
 }
