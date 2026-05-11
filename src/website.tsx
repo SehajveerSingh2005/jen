@@ -107,7 +107,7 @@ function Website() {
       {/* Navigation */}
       <nav className="glass-nav">
         <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="Jen Logo" className="w-8 h-8 drop-shadow-md" />
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Jen Logo" className="w-8 h-8 drop-shadow-md" />
           <span className="font-medium tracking-tight text-black text-xl">Jen</span>
         </div>
         <div className="flex items-center gap-6 text-sm font-medium text-black/60">
