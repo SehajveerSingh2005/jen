@@ -1,17 +1,23 @@
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense, useRef } from "react";
 import ReactDOM from "react-dom/client";
 import { motion, AnimatePresence, useScroll, useTransform } from "framer-motion";
 import { Orb, AgentState } from "./components/Orb";
 import { useTexture } from "@react-three/drei";
 import { 
   Play, 
+  Pause,
   SkipBack, 
   SkipForward, 
   Search,
   Globe,
   Monitor,
   FileText,
-  MessageSquare
+  MessageSquare,
+  Volume2,
+  Mic2,
+  ListMusic,
+  Radio,
+  Compass
 } from "lucide-react";
 import "./Website.css";
 
@@ -78,6 +84,35 @@ const SECTIONS = [
 function Website() {
   const [activeIdx, setActiveIdx] = useState(0);
   const [windowHeight, setWindowHeight] = useState(1000);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(() => {
+    if (activeIdx === 1) {
+      if (audioRef.current) {
+        audioRef.current.play().then(() => setIsPlaying(true)).catch(e => {
+          console.log("Auto-play prevented by browser policy", e);
+          setIsPlaying(false);
+        });
+      }
+    } else {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+      }
+    }
+  }, [activeIdx]);
+
+  // Global click listener to gracefully handle browser autoplay blocks
+  useEffect(() => {
+    const handleGlobalClick = () => {
+      if (activeIdx === 1 && !isPlaying && audioRef.current) {
+        audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+      }
+    };
+    window.addEventListener('click', handleGlobalClick);
+    return () => window.removeEventListener('click', handleGlobalClick);
+  }, [activeIdx, isPlaying]);
   
   useEffect(() => {
     setWindowHeight(window.innerHeight);
@@ -195,44 +230,120 @@ function Website() {
           </motion.div>
         </motion.section>
 
-        {/* 2. Showcase: Music */}
+        {/* 2. Showcase: Music (Apple Music macOS UI) */}
         <motion.section 
           className="min-h-screen flex items-center justify-center relative z-10"
           onViewportEnter={() => setActiveIdx(1)}
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
+          <audio 
+            ref={audioRef} 
+            src={`${import.meta.env.BASE_URL}gods-plan.mp3`} 
+            loop 
+            preload="auto"
+            onLoadedMetadata={(e) => { e.currentTarget.currentTime = 87; }}
+          />
+          
           <motion.div 
-            className="showcase-widget w-[320px]"
-            initial={{ opacity: 0, scale: 0.9, y: 40 }}
+            className="w-[800px] h-[500px] rounded-2xl bg-[#F5F5F7]/80 backdrop-blur-3xl shadow-[0_20px_40px_rgba(0,0,0,0.15)] border border-white/60 flex overflow-hidden relative"
+            initial={{ opacity: 0, scale: 0.95, y: 40 }}
             whileInView={{ opacity: 1, scale: 1, y: 0 }}
             viewport={{ margin: "-20% 0px -20% 0px" }}
             transition={{ type: "spring", stiffness: 100, damping: 20 }}
           >
-            <div className="w-full aspect-square rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 mb-6 shadow-inner relative overflow-hidden">
-              {/* Minimalist Vinyl/CD visual */}
-              <div className="absolute -right-8 -bottom-8 w-48 h-48 border-[16px] border-black/10 rounded-full" />
-              <div className="absolute right-4 bottom-4 w-12 h-12 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center">
-                 <div className="w-3 h-3 bg-indigo-600 rounded-full" />
+            {/* Sidebar */}
+            <div className="w-[240px] bg-black/[0.03] border-r border-black/5 flex flex-col relative z-20">
+              {/* macOS Traffic Lights */}
+              <div className="h-[52px] flex items-center px-4 gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]" />
+                <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]" />
+                <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]" />
               </div>
-            </div>
-            <h3 className="text-xl font-bold mb-1 text-black">God's Plan</h3>
-            <p className="text-sm text-[var(--text-muted)] font-medium mb-6">Drake</p>
-            
-            <div className="w-full h-1.5 bg-black/5 rounded-full mb-6 overflow-hidden">
-              <motion.div 
-                className="w-1/3 h-full bg-black rounded-full" 
-                initial={{ width: "0%" }}
-                whileInView={{ width: "33%" }}
-                transition={{ duration: 1.5, ease: "easeOut" }}
-              />
+
+              {/* Sidebar Content */}
+              <div className="px-3 py-2 space-y-1">
+                <p className="text-xs font-semibold text-[var(--text-muted)] mb-2 px-2 mt-2">Apple Music</p>
+                <div className="flex items-center gap-3 px-2 py-1.5 rounded-md bg-black/5 text-[#FA243C]">
+                  <Play className="w-4 h-4 fill-current" />
+                  <span className="text-[13px] font-medium">Listen Now</span>
+                </div>
+                <div className="flex items-center gap-3 px-2 py-1.5 rounded-md hover:bg-black/5 text-[var(--text-muted)] transition-colors cursor-pointer">
+                  <Compass className="w-4 h-4" />
+                  <span className="text-[13px] font-medium">Browse</span>
+                </div>
+                <div className="flex items-center gap-3 px-2 py-1.5 rounded-md hover:bg-black/5 text-[var(--text-muted)] transition-colors cursor-pointer">
+                  <Radio className="w-4 h-4" />
+                  <span className="text-[13px] font-medium">Radio</span>
+                </div>
+              </div>
             </div>
 
-            <div className="flex items-center justify-center gap-8">
-              <SkipBack className="w-5 h-5 opacity-40 hover:opacity-100 transition-opacity cursor-pointer text-black" />
-              <div className="w-14 h-14 bg-[#1d1d1f] rounded-full flex items-center justify-center cursor-pointer hover:scale-105 transition-transform shadow-[0_8px_16px_rgba(0,0,0,0.2)]">
-                <Play className="w-5 h-5 text-white ml-1 fill-white" />
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col relative z-10 bg-white/20">
+              {/* Top Control Bar */}
+              <div className="h-[52px] flex items-center justify-between px-6 border-b border-black/5 bg-white/40 backdrop-blur-md absolute top-0 left-0 right-0 z-20">
+                {/* Transport Controls */}
+                <div className="flex items-center gap-6">
+                  <SkipBack className="w-4 h-4 text-[var(--text-muted)] hover:text-black cursor-pointer transition-colors" />
+                  <button 
+                    onClick={() => {
+                      if (isPlaying) { 
+                        audioRef.current?.pause(); 
+                        setIsPlaying(false); 
+                      } else { 
+                        audioRef.current?.play().then(() => setIsPlaying(true)); 
+                      }
+                    }}
+                    className="w-8 h-8 rounded-full bg-black/[0.05] flex items-center justify-center hover:bg-black/10 transition-colors"
+                  >
+                    {isPlaying ? <Pause className="w-4 h-4 text-black fill-black" /> : <Play className="w-4 h-4 text-black fill-black ml-0.5" />}
+                  </button>
+                  <SkipForward className="w-4 h-4 text-[var(--text-muted)] hover:text-black cursor-pointer transition-colors" />
+                </div>
+
+                {/* Scrubber / LCD display */}
+                <div className="w-[240px] h-8 rounded-md bg-black/[0.03] border border-black/5 flex items-center justify-center relative overflow-hidden">
+                   {isPlaying && (
+                     <motion.div 
+                       className="absolute left-0 top-0 bottom-0 bg-black/5"
+                       initial={{ width: "0%" }}
+                       animate={{ width: "100%" }}
+                       transition={{ duration: 240, ease: "linear" }}
+                     />
+                   )}
+                   <span className="text-[11px] font-medium text-black z-10 relative">Drake — God's Plan</span>
+                </div>
+
+                {/* Volume & Extras */}
+                <div className="flex items-center gap-4">
+                  <Mic2 className="w-4 h-4 text-[var(--text-muted)]" />
+                  <ListMusic className="w-4 h-4 text-[var(--text-muted)]" />
+                  <div className="flex items-center gap-2">
+                    <Volume2 className="w-4 h-4 text-[var(--text-muted)]" />
+                    <div className="w-16 h-1.5 rounded-full bg-black/10">
+                      <div className="w-2/3 h-full rounded-full bg-[var(--text-muted)]" />
+                    </div>
+                  </div>
+                </div>
               </div>
-              <SkipForward className="w-5 h-5 opacity-40 hover:opacity-100 transition-opacity cursor-pointer text-black" />
+
+              {/* Now Playing Visuals */}
+              <div className="flex-1 pt-[52px] flex items-center justify-center p-12">
+                 <div className="flex gap-12 items-center w-full max-w-2xl pl-8">
+                    {/* Album Art */}
+                    <div className="w-[240px] h-[240px] rounded-lg shadow-[0_20px_40px_rgba(0,0,0,0.2)] relative overflow-hidden shrink-0 group">
+                      <img src={`${import.meta.env.BASE_URL}gods-plan.jpg`} alt="God's Plan" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+
+                    {/* Song Info */}
+                    <div className="flex flex-col">
+                      <h2 className="text-3xl font-bold text-black tracking-tight mb-2">God's Plan</h2>
+                      <p className="text-lg text-[#FA243C] font-medium mb-4">Drake</p>
+                      <p className="text-[13px] text-[var(--text-muted)] font-medium">Scorpion • 2018</p>
+                    </div>
+                 </div>
+              </div>
             </div>
           </motion.div>
         </motion.section>
@@ -244,37 +355,58 @@ function Website() {
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
           <motion.div 
-            className="showcase-widget w-[400px]"
-            initial={{ opacity: 0, scale: 0.9, y: 40 }}
+            className="w-[680px] rounded-2xl bg-[#F5F5F7]/90 backdrop-blur-3xl shadow-[0_30px_60px_rgba(0,0,0,0.15)] border border-white/60 overflow-hidden flex flex-col"
+            initial={{ opacity: 0, scale: 0.95, y: -20 }}
             whileInView={{ opacity: 1, scale: 1, y: 0 }}
             viewport={{ margin: "-20% 0px -20% 0px" }}
-            transition={{ type: "spring", stiffness: 100, damping: 20 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
           >
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 bg-purple-500/10 rounded-[1.25rem] flex items-center justify-center">
-                <Search className="w-6 h-6 text-purple-500" />
+            {/* Search Input Area */}
+            <div className="flex items-center gap-4 px-6 py-5 border-b border-black/5 bg-white/30">
+              <Search className="w-8 h-8 text-[var(--text-muted)]" />
+              <div className="flex-1 text-3xl font-light text-black outline-none bg-transparent">
+                 latest space news
               </div>
-              <div>
-                <h3 className="font-semibold text-lg text-black">Smart Search</h3>
-                <p className="text-sm text-[var(--text-muted)]">Instant lookups</p>
-              </div>
+              <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Jen" className="w-8 h-8 opacity-20 grayscale" />
             </div>
-            
-            <div className="space-y-3">
-              <div className="p-4 bg-white/60 rounded-2xl border border-white shadow-sm flex items-center gap-4">
-                 <Globe className="w-10 h-10 text-blue-600 p-2 bg-blue-100 rounded-xl" />
-                 <div>
-                   <p className="text-[15px] font-semibold text-black">NASA's New Rover</p>
-                   <p className="text-xs text-[var(--text-muted)]">Latest Space News • 2h ago</p>
-                 </div>
-              </div>
-              <div className="p-4 bg-black/[0.02] rounded-2xl border border-black/5 flex items-center gap-4">
-                 <Globe className="w-10 h-10 text-slate-500 p-2 bg-slate-100 rounded-xl" />
-                 <div>
-                   <p className="text-[15px] font-semibold text-[var(--text-muted)]">SpaceX Launch Schedule</p>
-                   <p className="text-xs text-[var(--text-muted)]/70">Upcoming flights</p>
-                 </div>
-              </div>
+
+            {/* Results Area */}
+            <div className="flex h-[380px]">
+               {/* Left Sidebar (Categories) */}
+               <div className="w-[180px] border-r border-black/5 p-2 flex flex-col gap-1 bg-white/20">
+                  <div className="px-3 py-1.5 rounded-lg bg-[#0062E3] text-white font-medium text-[13px] flex items-center justify-between shadow-sm">
+                     Top Hits
+                  </div>
+                  <div className="px-3 py-1.5 rounded-lg text-black/70 font-medium text-[13px]">
+                     Siri Knowledge
+                  </div>
+                  <div className="px-3 py-1.5 rounded-lg text-black/70 font-medium text-[13px]">
+                     News
+                  </div>
+                  <div className="px-3 py-1.5 rounded-lg text-black/70 font-medium text-[13px]">
+                     Web Search
+                  </div>
+               </div>
+
+               {/* Right Content (Rich Result) */}
+               <div className="flex-1 p-6 bg-white/10 flex flex-col">
+                  <div className="flex gap-6 items-start">
+                     {/* Thumbnail */}
+                     <div className="w-[120px] h-[120px] rounded-xl bg-[url('https://images.unsplash.com/photo-1614730321146-b6fa6a46bcb4?q=80&w=2574&auto=format&fit=crop')] bg-cover bg-center shadow-md flex-shrink-0" />
+                     {/* Info */}
+                     <div className="flex flex-col">
+                        <h3 className="text-2xl font-bold text-black mb-1">James Webb Space Telescope</h3>
+                        <p className="text-sm font-medium text-[var(--text-muted)] mb-3">Siri Knowledge</p>
+                        <p className="text-[13px] text-black/70 leading-relaxed">
+                          The James Webb Space Telescope is a space telescope designed primarily to conduct infrared astronomy. As the largest telescope in space, it is equipped with high-resolution and highly sensitive instruments, allowing it to view objects too old, distant, or faint for the Hubble Space Telescope.
+                        </p>
+                        <div className="mt-4 flex gap-2">
+                           <div className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-600 text-[11px] font-bold uppercase tracking-wide">NASA.gov</div>
+                           <div className="px-3 py-1 rounded-full bg-black/5 text-black/60 text-[11px] font-bold uppercase tracking-wide">Wikipedia</div>
+                        </div>
+                     </div>
+                  </div>
+               </div>
             </div>
           </motion.div>
         </motion.section>
@@ -286,26 +418,111 @@ function Website() {
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
           <motion.div 
-            className="showcase-widget w-[340px] text-center"
-            initial={{ opacity: 0, scale: 0.9, y: 40 }}
+            className="w-[900px] h-[560px] rounded-2xl bg-cover bg-center bg-[url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop')] shadow-[0_20px_40px_rgba(0,0,0,0.2)] border border-white/20 relative overflow-hidden flex flex-col"
+            initial={{ opacity: 0, scale: 0.95, y: 40 }}
             whileInView={{ opacity: 1, scale: 1, y: 0 }}
             viewport={{ margin: "-20% 0px -20% 0px" }}
             transition={{ type: "spring", stiffness: 100, damping: 20 }}
           >
-            <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-[0_12px_24px_rgba(16,185,129,0.3)]">
-              <Monitor className="w-8 h-8 text-white" />
-            </div>
-            <h3 className="text-2xl font-bold mb-3 text-black">Workspace Ready</h3>
-            <p className="text-[15px] text-[var(--text-muted)] mb-8 leading-relaxed px-4">Launching Notepad and focusing your active windows.</p>
-            
-            <div className="flex justify-center gap-6">
-               <div className="w-14 h-14 bg-sky-500 rounded-2xl shadow-lg flex items-center justify-center transform hover:scale-110 transition-transform">
-                 <FileText className="w-7 h-7 text-white" />
-               </div>
-               <div className="w-14 h-14 bg-[#5865F2] rounded-2xl shadow-lg flex items-center justify-center transform hover:scale-110 transition-transform opacity-50">
-                 <MessageSquare className="w-7 h-7 text-white" />
-               </div>
-            </div>
+             {/* Desktop Area with Windows */}
+             <div className="flex-1 relative">
+                {/* Notepad Window */}
+                <motion.div 
+                  className="absolute left-[80px] top-[60px] w-[380px] h-[320px] rounded-xl bg-[#F3F3F3]/90 backdrop-blur-2xl border border-white shadow-[0_12px_24px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden"
+                  initial={{ opacity: 0, y: 30, scale: 0.9 }}
+                  whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ delay: 0.2, type: "spring", bounce: 0.3 }}
+                >
+                  <div className="h-10 flex items-center px-4 justify-between border-b border-black/5 bg-white/50">
+                    <div className="flex items-center gap-2">
+                       <FileText className="w-4 h-4 text-sky-500" />
+                       <span className="text-[11px] font-medium text-black">Untitled - Notepad</span>
+                    </div>
+                    <div className="flex gap-4 items-center">
+                      <div className="w-3 h-0.5 bg-black/40" />
+                      <div className="w-3 h-3 border border-black/40 rounded-[2px]" />
+                      <div className="w-3 h-3 flex items-center justify-center relative">
+                        <div className="w-0.5 h-3 bg-black/40 rotate-45 absolute" />
+                        <div className="w-0.5 h-3 bg-black/40 -rotate-45 absolute" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex-1 p-5 bg-white/50">
+                    <p className="text-[14px] font-mono text-black/80 mb-1">Meeting Notes:</p>
+                    <p className="text-[14px] font-mono text-black/80">- Discuss Q3 roadmap</p>
+                    <p className="text-[14px] font-mono text-black/80">- Finalize UI designs</p>
+                    <motion.div 
+                      className="w-1.5 h-3.5 bg-black/80 inline-block ml-1 align-middle"
+                      animate={{ opacity: [1, 0] }}
+                      transition={{ repeat: Infinity, duration: 0.8 }}
+                    />
+                  </div>
+                </motion.div>
+
+                {/* Discord Window */}
+                <motion.div 
+                  className="absolute right-[80px] top-[100px] w-[420px] h-[340px] rounded-xl bg-[#313338]/95 backdrop-blur-2xl border border-white/10 shadow-[0_16px_32px_rgba(0,0,0,0.3)] flex flex-col overflow-hidden"
+                  initial={{ opacity: 0, y: 30, scale: 0.9 }}
+                  whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ delay: 0.35, type: "spring", bounce: 0.3 }}
+                >
+                   <div className="h-8 flex items-center px-4 justify-between bg-[#1E1F22]">
+                     <span className="text-[11px] font-bold text-[var(--text-muted)]">DISCORD</span>
+                     <div className="flex gap-4 items-center">
+                      <div className="w-3 h-0.5 bg-white/40" />
+                      <div className="w-3 h-3 border border-white/40 rounded-[2px]" />
+                      <div className="w-3 h-3 flex items-center justify-center relative">
+                        <div className="w-0.5 h-3 bg-white/40 rotate-45 absolute" />
+                        <div className="w-0.5 h-3 bg-white/40 -rotate-45 absolute" />
+                      </div>
+                    </div>
+                   </div>
+                   <div className="flex-1 flex">
+                     <div className="w-16 bg-[#1E1F22] flex flex-col items-center py-3 gap-2">
+                        <div className="w-10 h-10 rounded-[16px] bg-[#5865F2] flex items-center justify-center">
+                          <MessageSquare className="w-6 h-6 text-white" />
+                        </div>
+                        <div className="w-8 h-0.5 bg-[#313338] rounded-full my-1" />
+                        <div className="w-10 h-10 rounded-[20px] bg-[#313338] flex items-center justify-center text-white font-bold">D</div>
+                     </div>
+                     <div className="w-[120px] bg-[#2B2D31] flex flex-col p-3">
+                        <div className="h-3 w-16 bg-[#313338] rounded-full mb-4" />
+                        <div className="h-2 w-20 bg-white/20 rounded-full mb-3" />
+                        <div className="h-2 w-14 bg-[#313338] rounded-full mb-3" />
+                        <div className="h-2 w-16 bg-[#313338] rounded-full" />
+                     </div>
+                     <div className="flex-1 bg-[#313338] p-4 flex flex-col justify-end">
+                        <div className="w-full h-10 rounded-lg bg-[#383A40] mb-2 border border-white/5" />
+                     </div>
+                   </div>
+                </motion.div>
+             </div>
+
+             {/* Windows 11 Taskbar */}
+             <div className="h-14 bg-[#F3F3F3]/80 backdrop-blur-3xl border-t border-white/40 flex items-center justify-center gap-1 z-20">
+                <div className="w-10 h-10 rounded-md hover:bg-white/50 flex items-center justify-center transition-colors cursor-pointer">
+                   <div className="w-5 h-5 grid grid-cols-2 gap-0.5">
+                     <div className="bg-[#00A4EF] rounded-[2px]" />
+                     <div className="bg-[#00A4EF] rounded-[2px]" />
+                     <div className="bg-[#00A4EF] rounded-[2px]" />
+                     <div className="bg-[#00A4EF] rounded-[2px]" />
+                   </div>
+                </div>
+                {/* Search */}
+                <div className="w-32 h-8 bg-white/80 rounded-full border border-black/5 flex items-center px-3 gap-2 ml-1 mr-2 shadow-sm">
+                   <Search className="w-3 h-3 text-black/50" />
+                   <span className="text-[11px] font-medium text-black/50">Search</span>
+                </div>
+                {/* Apps */}
+                <div className="w-10 h-10 rounded-md hover:bg-white/50 flex items-center justify-center transition-colors cursor-pointer relative">
+                   <FileText className="w-6 h-6 text-sky-500" />
+                   <div className="absolute bottom-0 w-1.5 h-1 rounded-full bg-black/40" />
+                </div>
+                <div className="w-10 h-10 rounded-md hover:bg-white/50 flex items-center justify-center transition-colors cursor-pointer relative">
+                   <MessageSquare className="w-6 h-6 text-[#5865F2]" />
+                   <div className="absolute bottom-0 w-4 h-1 rounded-full bg-[#00A4EF]" />
+                </div>
+             </div>
           </motion.div>
         </motion.section>
 
