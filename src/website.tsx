@@ -7,10 +7,11 @@ import {
   Play, 
   SkipBack, 
   SkipForward, 
-  Mail, 
-  Moon,
+  Search,
+  Globe,
   Monitor,
-  ArrowRight
+  FileText,
+  MessageSquare
 } from "lucide-react";
 import "./Website.css";
 
@@ -44,21 +45,27 @@ const SECTIONS = [
   },
   { 
     id: 'music', 
-    bubble: "play God's Plan by Drake", 
+    bubble: "play some Drake", 
     state: 'listening' as AgentState, 
     colors: ["#bae6fd", "#38bdf8"] as [string, string]
   },
   { 
-    id: 'emails', 
-    bubble: "summarize my recent emails", 
+    id: 'search', 
+    bubble: "search google for latest space news", 
     state: 'thinking' as AgentState, 
     colors: ["#f3e8ff", "#a855f7"] as [string, string]
   },
   { 
-    id: 'focus', 
-    bubble: "turn on focus mode", 
+    id: 'apps', 
+    bubble: "open notepad", 
     state: 'talking' as AgentState, 
     colors: ["#ecfdf5", "#10b981"] as [string, string]
+  },
+  {
+    id: 'conclusion',
+    bubble: null,
+    state: 'thinking' as AgentState,
+    colors: ["#f8fafc", "#94a3b8"] as [string, string]
   },
   {
     id: 'download',
@@ -99,12 +106,9 @@ function Website() {
       
       {/* Navigation */}
       <nav className="glass-nav">
-        <div className="flex items-center gap-2">
-          <div className="relative w-6 h-6">
-            <div className="absolute inset-0 bg-black rounded-full" />
-            <div className="absolute inset-[25%] bg-white rounded-full animate-pulse" />
-          </div>
-          <span className="font-medium tracking-tight text-black">jen</span>
+        <div className="flex items-center gap-3">
+          <img src="/logo.png" alt="Jen Logo" className="w-8 h-8 drop-shadow-md" />
+          <span className="font-medium tracking-tight text-black text-xl">Jen</span>
         </div>
         <div className="flex items-center gap-6 text-sm font-medium text-black/60">
           <a href="#download" className="hover:text-black transition-colors">Download</a>
@@ -233,7 +237,7 @@ function Website() {
           </motion.div>
         </motion.section>
 
-        {/* 3. Showcase: Intelligence */}
+        {/* 3. Showcase: Smart Search */}
         <motion.section 
           className="min-h-screen flex items-center justify-center relative z-10"
           onViewportEnter={() => setActiveIdx(2)}
@@ -246,71 +250,92 @@ function Website() {
             viewport={{ margin: "-20% 0px -20% 0px" }}
             transition={{ type: "spring", stiffness: 100, damping: 20 }}
           >
-            <div className="flex items-center gap-4 mb-8">
-              <div className="w-12 h-12 bg-blue-500/10 rounded-[1.25rem] flex items-center justify-center">
-                <Mail className="w-6 h-6 text-blue-500" />
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-12 h-12 bg-purple-500/10 rounded-[1.25rem] flex items-center justify-center">
+                <Search className="w-6 h-6 text-purple-500" />
               </div>
               <div>
-                <h3 className="font-semibold text-lg text-black">Inbox Summary</h3>
-                <p className="text-sm text-[var(--text-muted)]">3 unread emails</p>
+                <h3 className="font-semibold text-lg text-black">Smart Search</h3>
+                <p className="text-sm text-[var(--text-muted)]">Instant lookups</p>
               </div>
             </div>
             
-            <div className="space-y-4">
-              <div className="p-5 bg-white/50 rounded-2xl border border-white shadow-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-semibold text-blue-600">Action Required</p>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-black/30">Just Now</span>
-                </div>
-                <p className="text-[15px] text-black/80 leading-relaxed">Sarah requested your review on the Q3 marketing designs by 5 PM today.</p>
+            <div className="space-y-3">
+              <div className="p-4 bg-white/60 rounded-2xl border border-white shadow-sm flex items-center gap-4">
+                 <Globe className="w-10 h-10 text-blue-600 p-2 bg-blue-100 rounded-xl" />
+                 <div>
+                   <p className="text-[15px] font-semibold text-black">NASA's New Rover</p>
+                   <p className="text-xs text-[var(--text-muted)]">Latest Space News • 2h ago</p>
+                 </div>
               </div>
-              <div className="p-5 bg-black/[0.02] rounded-2xl border border-black/5">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-semibold text-black">Newsletter</p>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-black/30">2h ago</span>
-                </div>
-                <p className="text-[15px] text-[var(--text-muted)] leading-relaxed">Framer released a new update regarding scroll-driven animations.</p>
+              <div className="p-4 bg-black/[0.02] rounded-2xl border border-black/5 flex items-center gap-4">
+                 <Globe className="w-10 h-10 text-slate-500 p-2 bg-slate-100 rounded-xl" />
+                 <div>
+                   <p className="text-[15px] font-semibold text-[var(--text-muted)]">SpaceX Launch Schedule</p>
+                   <p className="text-xs text-[var(--text-muted)]/70">Upcoming flights</p>
+                 </div>
               </div>
             </div>
           </motion.div>
         </motion.section>
 
-        {/* 4. Showcase: System Control */}
+        {/* 4. Showcase: App Control */}
         <motion.section 
           className="min-h-screen flex items-center justify-center relative z-10"
           onViewportEnter={() => setActiveIdx(3)}
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
           <motion.div 
-            className="showcase-widget w-[320px] text-center"
+            className="showcase-widget w-[340px] text-center"
             initial={{ opacity: 0, scale: 0.9, y: 40 }}
             whileInView={{ opacity: 1, scale: 1, y: 0 }}
             viewport={{ margin: "-20% 0px -20% 0px" }}
             transition={{ type: "spring", stiffness: 100, damping: 20 }}
           >
-            <div className="w-20 h-20 bg-indigo-500 rounded-full flex items-center justify-center mx-auto mb-8 shadow-[0_12px_24px_rgba(99,102,241,0.3)]">
-              <Moon className="w-8 h-8 text-white fill-white" />
+            <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-[0_12px_24px_rgba(16,185,129,0.3)]">
+              <Monitor className="w-8 h-8 text-white" />
             </div>
-            <h3 className="text-2xl font-bold mb-3 text-black">Focus Mode On</h3>
-            <p className="text-[15px] text-[var(--text-muted)] mb-10 leading-relaxed px-4">Notifications silenced until tomorrow morning.</p>
+            <h3 className="text-2xl font-bold mb-3 text-black">Workspace Ready</h3>
+            <p className="text-[15px] text-[var(--text-muted)] mb-8 leading-relaxed px-4">Launching Notepad and focusing your active windows.</p>
             
-            <div className="w-16 h-9 bg-indigo-500 rounded-full p-1 mx-auto cursor-pointer shadow-inner">
-              <motion.div 
-                className="w-7 h-7 bg-white rounded-full shadow-sm"
-                initial={{ x: 0 }}
-                whileInView={{ x: 28 }}
-                viewport={{ margin: "-20% 0px -20% 0px" }}
-                transition={{ type: "spring", stiffness: 400, damping: 25, delay: 0.2 }}
-              />
+            <div className="flex justify-center gap-6">
+               <div className="w-14 h-14 bg-sky-500 rounded-2xl shadow-lg flex items-center justify-center transform hover:scale-110 transition-transform">
+                 <FileText className="w-7 h-7 text-white" />
+               </div>
+               <div className="w-14 h-14 bg-[#5865F2] rounded-2xl shadow-lg flex items-center justify-center transform hover:scale-110 transition-transform opacity-50">
+                 <MessageSquare className="w-7 h-7 text-white" />
+               </div>
             </div>
           </motion.div>
         </motion.section>
 
-        {/* 5. Minimalist Download footer */}
+        {/* 5. Conclusion Section */}
+        <motion.section 
+          className="min-h-[70vh] flex flex-col items-center justify-center relative z-10"
+          onViewportEnter={() => setActiveIdx(4)}
+          viewport={{ margin: "-50% 0px -50% 0px" }}
+        >
+          <motion.div 
+            className="text-center px-4 max-w-2xl"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ margin: "-20% 0px -20% 0px" }}
+            transition={{ duration: 0.8 }}
+          >
+            <h2 className="text-4xl md:text-5xl font-medium tracking-tight mb-6 text-black leading-tight">
+              Unobtrusive.<br/><span className="text-[var(--text-muted)] italic">Always ready.</span>
+            </h2>
+            <p className="text-lg md:text-xl text-[var(--text-muted)] font-light leading-relaxed">
+              Jen is designed to live quietly at the bottom of your screen, waiting for your wake word. No heavy windows, no distractions. Just raw utility.
+            </p>
+          </motion.div>
+        </motion.section>
+
+        {/* 6. Minimalist Download footer */}
         <motion.section 
           id="download"
           className="min-h-screen flex flex-col items-center justify-center relative z-10"
-          onViewportEnter={() => setActiveIdx(4)}
+          onViewportEnter={() => setActiveIdx(5)}
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
           <div className="max-w-3xl mx-auto text-center px-4">
