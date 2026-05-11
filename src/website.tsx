@@ -17,7 +17,12 @@ import {
   Mic2,
   ListMusic,
   Radio,
-  Compass
+  Compass,
+  Cpu,
+  Zap,
+  Eye,
+  Calendar,
+  Paintbrush
 } from "lucide-react";
 import "./Website.css";
 
@@ -39,7 +44,7 @@ const Github = ({ className }: { className?: string }) => (
 );
 
 const GITHUB_URL = "https://github.com/SehajveerSingh2005/jen";
-const RELEASES_URL = `${GITHUB_URL}/releases/latest`;
+const RELEASES_URL = "https://github.com/SehajveerSingh2005/jen/releases/latest";
 
 // Define the scroll sections, their associated chat bubble, and orb state
 const SECTIONS = [
@@ -68,7 +73,7 @@ const SECTIONS = [
     colors: ["#ecfdf5", "#10b981"] as [string, string]
   },
   {
-    id: 'conclusion',
+    id: 'roadmap',
     bubble: null,
     state: 'thinking' as AgentState,
     colors: ["#f8fafc", "#94a3b8"] as [string, string]
@@ -86,11 +91,35 @@ function Website() {
   const [windowHeight, setWindowHeight] = useState(1000);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState(RELEASES_URL);
+  const [version, setVersion] = useState("v0.1.0");
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
+
+  useEffect(() => {
+    fetch("https://api.github.com/repos/SehajveerSingh2005/jen/releases/latest")
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.tag_name) {
+          setVersion(data.tag_name);
+        }
+        if (data && data.assets) {
+          // Look for an MSI or EXE installer
+          const installerAsset = data.assets.find((a: any) => a.name.endsWith('.msi') || a.name.endsWith('-setup.exe'));
+          if (installerAsset) {
+            setDownloadUrl(installerAsset.browser_download_url);
+          }
+        }
+      })
+      .catch(err => console.error("Failed to fetch latest release:", err));
+  }, []);
 
   useEffect(() => {
     if (activeIdx === 1) {
       if (audioRef.current) {
-        audioRef.current.play().then(() => setIsPlaying(true)).catch(e => {
+        audioRef.current.play().then(() => {
+          setIsPlaying(true);
+          setIsAudioUnlocked(true);
+        }).catch(e => {
           console.log("Auto-play prevented by browser policy", e);
           setIsPlaying(false);
         });
@@ -101,18 +130,21 @@ function Website() {
         setIsPlaying(false);
       }
     }
-  }, [activeIdx]);
+  }, [activeIdx, isAudioUnlocked]);
 
-  // Global click listener to gracefully handle browser autoplay blocks
+  // Global click listener to unlock audio APIs on first interaction
   useEffect(() => {
-    const handleGlobalClick = () => {
-      if (activeIdx === 1 && !isPlaying && audioRef.current) {
-        audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
-      }
+    if (isAudioUnlocked) return;
+    const handleGlobalInteraction = () => {
+      setIsAudioUnlocked(true);
     };
-    window.addEventListener('click', handleGlobalClick);
-    return () => window.removeEventListener('click', handleGlobalClick);
-  }, [activeIdx, isPlaying]);
+    window.addEventListener('click', handleGlobalInteraction, { once: true });
+    window.addEventListener('touchstart', handleGlobalInteraction, { once: true });
+    return () => {
+      window.removeEventListener('click', handleGlobalInteraction);
+      window.removeEventListener('touchstart', handleGlobalInteraction);
+    };
+  }, [isAudioUnlocked]);
   
   useEffect(() => {
     setWindowHeight(window.innerHeight);
@@ -129,7 +161,7 @@ function Website() {
   // Container bottom is at 32px. Center from bottom = 190 + 32 = 222px.
   // We want the orb center to be 45vh from the bottom in the Hero section.
   const targetCenter = 0.45 * windowHeight;
-  const startY = -(targetCenter - 222);
+  const startY = -(targetCenter - 275);
 
   // Animate width and height directly for perfect DOM layout
   const orbSize = useTransform(scrollY, [0, scrollDistance], [380, 180]);
@@ -146,12 +178,14 @@ function Website() {
           <span className="font-medium tracking-tight text-black text-xl">Jen</span>
         </div>
         <div className="flex items-center gap-6 text-sm font-medium text-black/60">
-          <a href="#download" className="hover:text-black transition-colors">Download</a>
           <a href={GITHUB_URL} className="flex items-center gap-1.5 hover:text-black transition-colors">
             <Github className="w-4 h-4" />
             GitHub
           </a>
-          <a href={RELEASES_URL} className="btn-primary py-2 px-5 text-xs shadow-none">Get Started</a>
+          <a href={downloadUrl} className="btn-primary py-2 px-6 text-[13px] shadow-sm flex items-center gap-2">
+            <Monitor className="w-4 h-4" />
+            Download
+          </a>
         </div>
       </nav>
 
@@ -178,15 +212,23 @@ function Website() {
 
         {/* Dynamic Scroll-Linked Orb */}
         <motion.div 
-          className="relative pointer-events-auto drop-shadow-2xl cursor-pointer"
+          className="relative pointer-events-auto cursor-pointer"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ 
+            duration: 0.5, 
+            delay: 0.5,
+            ease: "easeOut"
+          }}
           style={{
             width: orbSize,
             height: orbSize,
-            y: orbY
+            y: orbY,
+            filter: "drop-shadow(0 20px 50px rgba(0,0,0,0.1))"
           }}
         >
-          <div className="absolute inset-0 bg-sky-400/20 blur-[30px] rounded-full" />
-          <Suspense fallback={<div className="w-full h-full rounded-full bg-black/5 animate-pulse" />}>
+          <div className="absolute inset-0 bg-sky-400/10 blur-[40px] rounded-full" />
+          <Suspense fallback={<div className="w-full h-full rounded-full bg-black/[0.03] animate-pulse" />}>
             <Orb 
               className="w-full h-full" 
               colors={SECTIONS[activeIdx].colors} 
@@ -206,17 +248,43 @@ function Website() {
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            initial="hidden"
+            animate="visible"
             className="text-center"
           >
-            <h1 className="text-[5.5rem] md:text-[7.5rem] font-medium tracking-tight leading-[0.9] text-black mb-4">
+            <motion.div 
+              variants={{
+                hidden: { opacity: 0, y: 15 },
+                visible: { opacity: 1, y: 0 }
+              }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/5 border border-black/5 mb-8"
+            >
+               <div className="w-2 h-2 rounded-full bg-[#27C93F] animate-pulse" />
+               <span className="text-[11px] font-bold tracking-widest uppercase text-black/60">{version} — Public Beta</span>
+            </motion.div>
+            
+            <motion.h1 
+              variants={{
+                hidden: { opacity: 0, y: 25 },
+                visible: { opacity: 1, y: 0 }
+              }}
+              transition={{ duration: 0.8, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              className="text-[5.5rem] md:text-[7.5rem] font-medium tracking-tight leading-[0.9] text-black mb-4"
+            >
               Meet Jen.
-            </h1>
-            <p className="text-xl md:text-3xl text-[var(--text-muted)] font-light tracking-tight max-w-sm md:max-w-none mx-auto">
-              Intelligence that feels <span className="text-black italic pr-1">alive</span>.
-            </p>
+            </motion.h1>
+            
+            <motion.p 
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0 }
+              }}
+              transition={{ duration: 0.8, delay: 0.6, ease: [0.16, 1, 0.3, 1] }}
+              className="text-xl md:text-3xl text-[var(--text-muted)] font-light tracking-tight max-w-sm md:max-w-none mx-auto"
+            >
+              Voice control that feels <span className="text-black italic pr-1">native</span>.
+            </motion.p>
           </motion.div>
           
           <motion.div 
@@ -286,12 +354,16 @@ function Website() {
                 <div className="flex items-center gap-6">
                   <SkipBack className="w-4 h-4 text-[var(--text-muted)] hover:text-black cursor-pointer transition-colors" />
                   <button 
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       if (isPlaying) { 
                         audioRef.current?.pause(); 
                         setIsPlaying(false); 
                       } else { 
-                        audioRef.current?.play().then(() => setIsPlaying(true)); 
+                        audioRef.current?.play().then(() => {
+                          setIsPlaying(true);
+                          setIsAudioUnlocked(true);
+                        }); 
                       }
                     }}
                     className="w-8 h-8 rounded-full bg-black/[0.05] flex items-center justify-center hover:bg-black/10 transition-colors"
@@ -548,10 +620,62 @@ function Website() {
           </motion.div>
         </motion.section>
 
+        {/* 5. Roadmap Section */}
+        <motion.section 
+          className="min-h-screen flex items-center justify-center relative z-10 py-32 bg-[#0A0A0A]"
+          onViewportEnter={() => setActiveIdx(4)}
+          viewport={{ margin: "-50% 0px -50% 0px" }}
+        >
+          <div className="max-w-6xl mx-auto px-6 w-full">
+            <div className="text-center mb-16">
+              <h2 className="text-4xl md:text-5xl font-medium tracking-tight text-white mb-4">What's Next</h2>
+              <p className="text-lg text-white/50">The vision for the ultimate desktop companion.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+               {/* LLM Integration - Span 2 cols */}
+               <div className="md:col-span-2 bg-white/[0.03] border border-white/10 rounded-3xl p-8 hover:bg-white/[0.05] transition-colors relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-[80px] rounded-full group-hover:bg-indigo-500/20 transition-colors" />
+                  <Cpu className="w-8 h-8 text-indigo-400 mb-6 relative z-10" />
+                  <h3 className="text-2xl font-semibold text-white mb-2 relative z-10">LLM Reasoning</h3>
+                  <p className="text-white/50 leading-relaxed max-w-md relative z-10">Connect Jen to local models via Ollama or cloud-based LLMs for complex reasoning and natural, flowing conversations.</p>
+               </div>
+
+               {/* Native Rust STT */}
+               <div className="bg-white/[0.03] border border-white/10 rounded-3xl p-8 hover:bg-white/[0.05] transition-colors">
+                  <Zap className="w-8 h-8 text-amber-400 mb-6" />
+                  <h3 className="text-xl font-semibold text-white mb-2">Native Rust STT</h3>
+                  <p className="text-white/50 text-[13px] leading-relaxed">Migrating from Python to pure Rust for zero-latency, offline voice recognition and tiny bundle sizes.</p>
+               </div>
+
+               {/* Context-Aware Actions */}
+               <div className="bg-white/[0.03] border border-white/10 rounded-3xl p-8 hover:bg-white/[0.05] transition-colors">
+                  <Eye className="w-8 h-8 text-emerald-400 mb-6" />
+                  <h3 className="text-xl font-semibold text-white mb-2">Screen Context</h3>
+                  <p className="text-white/50 text-[13px] leading-relaxed">Jen will be able to see and understand what's currently on your screen to provide hyper-relevant assistance.</p>
+               </div>
+
+               {/* Calendar & Mail */}
+               <div className="bg-white/[0.03] border border-white/10 rounded-3xl p-8 hover:bg-white/[0.05] transition-colors">
+                  <Calendar className="w-8 h-8 text-sky-400 mb-6" />
+                  <h3 className="text-xl font-semibold text-white mb-2">Productivity</h3>
+                  <p className="text-white/50 text-[13px] leading-relaxed">Deep integration with native Windows calendar and mail apps for seamless scheduling.</p>
+               </div>
+
+               {/* Custom Skins */}
+               <div className="bg-white/[0.03] border border-white/10 rounded-3xl p-8 hover:bg-white/[0.05] transition-colors">
+                  <Paintbrush className="w-8 h-8 text-pink-400 mb-6" />
+                  <h3 className="text-xl font-semibold text-white mb-2">Custom Skins</h3>
+                  <p className="text-white/50 text-[13px] leading-relaxed">Personalize your companion with unique visual skins and custom interaction animations.</p>
+               </div>
+            </div>
+          </div>
+        </motion.section>
+
         {/* 6. Minimalist Download footer */}
         <motion.section 
           id="download"
-          className="min-h-screen flex flex-col items-center justify-center relative z-10"
+          className="min-h-[75vh] flex flex-col items-center justify-center relative z-10"
           onViewportEnter={() => setActiveIdx(5)}
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
@@ -559,7 +683,7 @@ function Website() {
             <h2 className="text-5xl md:text-7xl font-medium tracking-tight mb-8 text-black">Ready to try Jen?</h2>
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center mt-12">
-              <a href={RELEASES_URL} className="btn-primary flex items-center justify-center gap-3 py-5 px-10 text-lg">
+              <a href={downloadUrl} className="btn-primary flex items-center justify-center gap-3 py-5 px-10 text-lg">
                 <Monitor className="w-5 h-5" />
                 Download for Windows
               </a>
