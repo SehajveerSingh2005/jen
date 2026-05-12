@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Volume2,
   Mic2,
+  Keyboard,
   ListMusic,
   Radio,
   Compass,
@@ -52,6 +53,12 @@ const SECTIONS = [
     bubble: null, 
     state: 'thinking' as AgentState, 
     colors: ["#f8fafc", "#94a3b8"] as [string, string] 
+  },
+  { 
+    id: 'wake', 
+    bubble: "Hey Jen", 
+    state: 'listening' as AgentState, 
+    colors: ["#bae6fd", "#38bdf8"] as [string, string]
   },
   { 
     id: 'music', 
@@ -113,7 +120,7 @@ function Website() {
   }, []);
 
   useEffect(() => {
-    if (activeIdx === 1) {
+    if (activeIdx === 2) {
       if (audioRef.current) {
         audioRef.current.play().then(() => {
           setIsPlaying(true);
@@ -297,10 +304,45 @@ function Website() {
           </motion.div>
         </motion.section>
 
+        {/* 1.5. Wake Word & Keybind */}
+        <motion.section 
+          className="min-h-[60vh] flex flex-col items-center justify-center relative z-10 py-20"
+          onViewportEnter={() => setActiveIdx(1)}
+          viewport={{ margin: "-50% 0px -50% 0px" }}
+        >
+          <motion.div 
+            className="flex flex-col md:flex-row gap-12 max-w-4xl px-6"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ margin: "-20% 0px -20% 0px" }}
+            transition={{ duration: 0.8 }}
+          >
+            <div className="flex-1 flex flex-col items-center text-center">
+              <div className="w-16 h-16 rounded-2xl bg-black/5 flex items-center justify-center mb-6 shadow-sm border border-black/5">
+                <Mic2 className="w-8 h-8 text-black" />
+              </div>
+              <h3 className="text-2xl font-medium text-black mb-3">Voice Activated</h3>
+              <p className="text-lg text-[var(--text-muted)] font-light leading-relaxed">
+                Just say <span className="text-black font-medium italic">"Hey Jen"</span> to wake Jen up. Always listening, yet never intrusive.
+              </p>
+            </div>
+            
+            <div className="flex-1 flex flex-col items-center text-center">
+              <div className="w-16 h-16 rounded-2xl bg-black/5 flex items-center justify-center mb-6 shadow-sm border border-black/5">
+                <Keyboard className="w-8 h-8 text-black" />
+              </div>
+              <h3 className="text-2xl font-medium text-black mb-3">Keyboard Ready</h3>
+              <p className="text-lg text-[var(--text-muted)] font-light leading-relaxed">
+                Prefer keys? Use <span className="text-black font-medium">Ctrl + Shift + R</span> to trigger Jen instantly from any application.
+              </p>
+            </div>
+          </motion.div>
+        </motion.section>
+
         {/* 2. Showcase: Music (Apple Music macOS UI) */}
         <motion.section 
           className="min-h-screen flex items-center justify-center relative z-10"
-          onViewportEnter={() => setActiveIdx(1)}
+          onViewportEnter={() => setActiveIdx(2)}
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
           <audio 
@@ -422,7 +464,7 @@ function Website() {
         {/* 3. Showcase: Smart Search */}
         <motion.section 
           className="min-h-screen flex items-center justify-center relative z-10"
-          onViewportEnter={() => setActiveIdx(2)}
+          onViewportEnter={() => setActiveIdx(3)}
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
           <motion.div 
@@ -485,7 +527,7 @@ function Website() {
         {/* 4. Showcase: App Control */}
         <motion.section 
           className="min-h-screen flex items-center justify-center relative z-10"
-          onViewportEnter={() => setActiveIdx(3)}
+          onViewportEnter={() => setActiveIdx(4)}
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
           <motion.div 
@@ -600,7 +642,7 @@ function Website() {
         {/* 5. Conclusion Section */}
         <motion.section 
           className="min-h-[70vh] flex flex-col items-center justify-center relative z-10"
-          onViewportEnter={() => setActiveIdx(4)}
+          onViewportEnter={() => setActiveIdx(5)}
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
           <motion.div 
@@ -622,7 +664,7 @@ function Website() {
         {/* 5. Roadmap Section */}
         <motion.section 
           className="min-h-screen flex items-center justify-center relative z-10 py-32 bg-[#0A0A0A]"
-          onViewportEnter={() => setActiveIdx(4)}
+          onViewportEnter={() => setActiveIdx(5)}
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
           <div className="max-w-6xl mx-auto px-6 w-full">
@@ -675,7 +717,7 @@ function Website() {
         <motion.section 
           id="download"
           className="min-h-[75vh] flex flex-col items-center justify-center relative z-10"
-          onViewportEnter={() => setActiveIdx(5)}
+          onViewportEnter={() => setActiveIdx(6)}
           viewport={{ margin: "-50% 0px -50% 0px" }}
         >
           <div className="max-w-3xl mx-auto text-center px-4">
