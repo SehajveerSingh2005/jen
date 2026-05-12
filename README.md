@@ -1,7 +1,7 @@
 <div align="center">
   <img src="src-tauri/icons/128x128.png" alt="Jen Logo" width="128" height="128" />
   <h1>Jen</h1>
-  <p><b>Your Minimalist, Voice-Powered AI Assistant for Windows</b></p>
+  <p><b>Your Minimalist, Voice-Powered Assistant for Windows</b></p>
 
   <p>
     <a href="https://github.com/SehajveerSingh2005/jen/releases/latest">
@@ -13,7 +13,7 @@
   </p>
 
   <p>
-    <i>Jen is a lightweight, non-intrusive AI companion designed to live at the bottom of your screen. She listens for your wake word, executes commands, and stays out of your way.</i>
+    <i>Jen is a lightweight, non-intrusive virtual companion designed to live at the bottom of your screen. Jen listens for your wake word, executes commands, and stays out of your way.</i>
   </p>
 </div>
 
