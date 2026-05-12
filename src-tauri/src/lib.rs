@@ -39,10 +39,10 @@ unsafe impl<T> Sync for SendSyncWrapper<T> {}
 struct AppState {
     pub state: Mutex<OrbState>,
     pub python_child: Mutex<Option<CommandChild>>,
-    pub audio_handle: OutputStreamHandle,
+    pub audio_handle: Mutex<OutputStreamHandle>,
     pub audio_feedback: Mutex<bool>,
     pub current_shortcut: Mutex<Option<Shortcut>>,
-    _audio_stream: SendSyncWrapper<OutputStream>,
+    pub _audio_stream: Mutex<SendSyncWrapper<OutputStream>>,
 }
 
 const WAKE_MP3: &[u8] = include_bytes!("../assets/wake.mp3");
@@ -59,21 +59,24 @@ fn play_sound(handle: &OutputStreamHandle, data: &'static [u8]) {
 fn play_wake_sound(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     if *state.audio_feedback.lock().unwrap() {
-        play_sound(&state.audio_handle, WAKE_MP3);
+        let handle = state.audio_handle.lock().unwrap();
+        play_sound(&handle, WAKE_MP3);
     }
 }
 
 fn play_success_sound(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     if *state.audio_feedback.lock().unwrap() {
-        play_sound(&state.audio_handle, SUCCESS_MP3);
+        let handle = state.audio_handle.lock().unwrap();
+        play_sound(&handle, SUCCESS_MP3);
     }
 }
 
 fn play_error_sound(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     if *state.audio_feedback.lock().unwrap() {
-        play_sound(&state.audio_handle, ERROR_MP3);
+        let handle = state.audio_handle.lock().unwrap();
+        play_sound(&handle, ERROR_MP3);
     }
 }
 
@@ -197,13 +200,54 @@ pub fn run() {
         .manage(AppState {
             state: Mutex::new(OrbState::Idle),
             python_child: Mutex::new(None),
-            audio_handle: audio_handle.clone(),
+            audio_handle: Mutex::new(audio_handle),
             audio_feedback: Mutex::new(true),
             current_shortcut: Mutex::new(None),
-            _audio_stream: SendSyncWrapper(audio_stream),
+            _audio_stream: Mutex::new(SendSyncWrapper(audio_stream)),
         })
         .setup(move |app| {
             let app_handle = app.handle().clone();
+
+            // Spawn audio output monitor
+            let audio_app_handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                use rodio::cpal::traits::{HostTrait, DeviceTrait};
+
+                // Helper to get default device ID
+                let get_default_id = || {
+                    let host = rodio::cpal::default_host();
+                    host.default_output_device().and_then(|d| d.name().ok())
+                };
+
+                let mut current_device_id = get_default_id();
+
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    
+                    let new_id = get_default_id();
+                    if new_id != current_device_id {
+                        println!("Default audio output device changed to: {:?}. Refreshing...", new_id);
+                        match OutputStream::try_default() {
+                            Ok((new_stream, new_handle)) => {
+                                let state = audio_app_handle.state::<AppState>();
+                                {
+                                    let mut stream_guard = state._audio_stream.lock().unwrap();
+                                    *stream_guard = SendSyncWrapper(new_stream);
+                                }
+                                {
+                                    let mut handle_guard = state.audio_handle.lock().unwrap();
+                                    *handle_guard = new_handle;
+                                }
+                                current_device_id = new_id;
+                                println!("Audio output stream refreshed successfully.");
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to refresh audio output stream: {}", e);
+                            }
+                        }
+                    }
+                }
+            });
 
             // Load saved settings
             if let Ok(store) = app_handle.store("settings.json") {
@@ -402,8 +446,9 @@ pub fn run() {
             }
 
             // Start the persistent STT sidecar with auto-restart logic
+            let stt_app_handle = app_handle.clone();
             tauri::async_runtime::spawn(async move {
-                let shell = app_handle.shell();
+                let shell = stt_app_handle.shell();
 
                 loop {
                     println!("Spawning STT sidecar...");
@@ -422,7 +467,7 @@ pub fn run() {
 
                     // Store the child handle
                     {
-                        let state = app_handle.state::<AppState>();
+                        let state = stt_app_handle.state::<AppState>();
                         *state.python_child.lock().unwrap() = Some(child);
                     }
 
@@ -439,25 +484,25 @@ pub fn run() {
                                     if let Ok(json) =
                                         serde_json::from_str::<serde_json::Value>(sub_line)
                                     {
-                                        let state_lock = app_handle.state::<AppState>();
+                                        let state_lock = stt_app_handle.state::<AppState>();
 
                                         match json["status"].as_str() {
                                             Some("detected") => {
                                                 println!("Wake word detected!");
-                                                play_wake_sound(&app_handle);
+                                                play_wake_sound(&stt_app_handle);
                                                 {
                                                     let mut s = state_lock.state.lock().unwrap();
                                                     *s = OrbState::Listening;
                                                 }
                                                 if let Some(window) =
-                                                    app_handle.get_webview_window("main")
+                                                    stt_app_handle.get_webview_window("main")
                                                 {
                                                     let hwnd = window.hwnd().unwrap();
                                                     unsafe {
                                                         let _ = ShowWindow(HWND(hwnd.0), SW_SHOWNA);
                                                     }
                                                 }
-                                                app_handle
+                                                stt_app_handle
                                                     .emit("orb-state-change", OrbState::Listening)
                                                     .unwrap();
                                             }
@@ -466,7 +511,7 @@ pub fn run() {
                                                     let mut s = state_lock.state.lock().unwrap();
                                                     *s = OrbState::Recording;
                                                 }
-                                                app_handle
+                                                stt_app_handle
                                                     .emit("orb-state-change", OrbState::Recording)
                                                     .unwrap();
                                             }
@@ -475,23 +520,23 @@ pub fn run() {
                                                     let mut s = state_lock.state.lock().unwrap();
                                                     *s = OrbState::Processing;
                                                 }
-                                                app_handle
+                                                stt_app_handle
                                                     .emit("orb-state-change", OrbState::Processing)
                                                     .unwrap();
                                             }
                                             Some("success") => {
                                                 let text = json["text"].as_str().unwrap_or("");
                                                 println!("Command executed: {}", text);
-                                                play_success_sound(&app_handle);
+                                                play_success_sound(&stt_app_handle);
                                                 {
                                                     let mut s = state_lock.state.lock().unwrap();
                                                     *s = OrbState::Success;
-                                                    app_handle
+                                                    stt_app_handle
                                                         .emit("orb-state-change", OrbState::Success)
                                                         .unwrap();
                                                 }
 
-                                                let h = app_handle.clone();
+                                                let h = stt_app_handle.clone();
                                                 tauri::async_runtime::spawn(async move {
                                                     tokio::time::sleep(
                                                         std::time::Duration::from_secs(4),
@@ -515,16 +560,16 @@ pub fn run() {
                                                 });
                                             }
                                             Some("error") => {
-                                                play_error_sound(&app_handle);
+                                                play_error_sound(&stt_app_handle);
                                                 {
                                                     let mut s = state_lock.state.lock().unwrap();
                                                     *s = OrbState::Error;
                                                 }
-                                                app_handle
+                                                stt_app_handle
                                                     .emit("orb-state-change", OrbState::Error)
                                                     .unwrap();
 
-                                                let h = app_handle.clone();
+                                                let h = stt_app_handle.clone();
                                                 tauri::async_runtime::spawn(async move {
                                                     tokio::time::sleep(
                                                         std::time::Duration::from_secs(7),
@@ -555,7 +600,7 @@ pub fn run() {
                                                         | OrbState::Recording
                                                 ) {
                                                     *s = OrbState::Idle;
-                                                    app_handle
+                                                    stt_app_handle
                                                         .emit("orb-state-change", OrbState::Idle)
                                                         .unwrap();
                                                 }
@@ -563,7 +608,7 @@ pub fn run() {
                                             Some("media_control") => {
                                                 let cmd =
                                                     json["command"].as_str().unwrap_or("toggle");
-                                                let _h = app_handle.clone();
+                                                let _h = stt_app_handle.clone();
                                                 let cmd_string = cmd.to_string();
                                                 tauri::async_runtime::spawn(async move {
                                                     let _ = media_command(cmd_string).await;
@@ -571,7 +616,7 @@ pub fn run() {
                                             }
                                             Some("hide") => {
                                                 if let Some(window) =
-                                                    app_handle.get_webview_window("main")
+                                                    stt_app_handle.get_webview_window("main")
                                                 {
                                                     let _ = window.hide();
                                                 }
