@@ -36,32 +36,64 @@ jobs:
 
       - name: set version from tag
         shell: pwsh
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
-          $tag = "${{ github.ref_name }}"
-          $version = $tag.TrimStart('v')
-          echo "Building version: $version"
-          echo "VERSION=$version" >> $env:GITHUB_ENV
+          # Use Python to reliably normalize version and update JSONs
+          $version = python -c "
+          import json, re, os
+          ref_name = os.environ.get('REF_NAME', '')
+          ref_type = os.environ.get('REF_TYPE', '')
           
-          # Use Python for reliable JSON editing
-          python -c "
-          import json, os
-          v = '$version'
+          # Read current version from tauri.conf.json as fallback
+          conf_path = 'src-tauri/tauri.conf.json'
+          with open(conf_path, 'r', encoding='utf-8') as f:
+              conf = json.load(f)
+          current_version = conf.get('version', '0.1.0')
+          
+          version = current_version
+          if ref_type == 'tag' or ref_name.startswith('v'):
+              tag = ref_name.lstrip('v')
+              match = re.match(r'^(\d+)(?:\.(\d+))?(?:\.(\d+))?(.*)$', tag)
+              if match:
+                  major, minor, patch, pre = match.groups()
+                  major = major or '0'
+                  minor = minor or '0'
+                  patch = patch or '0'
+                  semver = f'{major}.{minor}.{patch}'
+                  if pre:
+                      pre_clean = pre.lstrip('-').lstrip('.')
+                      if pre_clean:
+                          semver += f'-{pre_clean}'
+                  version = semver
+              else:
+                  version = tag
+          
+          # Write to stdout so PowerShell can capture it
+          print(version)
           
           # Update package.json
           with open('package.json', 'r') as f:
               pkg = json.load(f)
-          pkg['version'] = v
+          pkg['version'] = version
           with open('package.json', 'w') as f:
               json.dump(pkg, f, indent=2)
           
           # Update tauri.conf.json
-          conf_path = 'src-tauri/tauri.conf.json'
-          with open(conf_path, 'r', encoding='utf-8') as f:
-              conf = json.load(f)
-          conf['version'] = v
+          conf['version'] = version
           with open(conf_path, 'w', encoding='utf-8') as f:
               json.dump(conf, f, indent=2, ensure_ascii=False)
           "
+          
+          echo "Normalized version: $version"
+          echo "VERSION=$version" >> $env:GITHUB_ENV
+          
+          $tag = "${{ github.ref_name }}"
+          if ("${{ github.ref_type }}" -ne "tag") {
+              $tag = "v$version"
+          }
+          echo "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -104,8 +136,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v${{ env.VERSION }}
-          releaseName: 'Jen v${{ env.VERSION }}'
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: 'Jen ${{ env.RELEASE_TAG }}'
           releaseBody: |
             ## What's New
             See the changelog for details on this release.
