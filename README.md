@@ -25,7 +25,10 @@
 - **Global Hotkey:** Quick manual trigger with `Ctrl+Shift+R` (customizable).
 - **Media Control:** Control Spotify, YouTube, or system media with voice (Play/Pause/Next/Prev).
 - **Smart Search:** Instant Google searches or "I'm Feeling Lucky" navigation.
-- **Window Management:** Quickly focus or hide application windows.
+- **Window Management:** Quickly focus, minimize, maximize, or close application windows.
+- **System Commands:** Screenshots, clipboard ops, keyboard shortcuts, brightness, and quick-launch built-in apps.
+- **Power Control:** Lock, sleep, hibernate, restart, or shut down — with an optional safety guard.
+- **Sensitive Command Protection:** A toggle in Settings to block power commands from being triggered by voice.
 - **Minimalist UI:** A beautiful, transparent orb that reacts to your voice.
 - **Auto-Start:** Optionally launch Jen automatically when you sign in to Windows.
 
@@ -43,13 +46,35 @@
 
 Jen understands a variety of natural language intents. Here are some examples of what you can say:
 
-| Category | Example Commands |
+| Category | Example Phrases |
 | :--- | :--- |
-| **Media** | "Pause the music", "Play next song", "Previous track", "Resume playback" |
-| **Search** | "Search Google for latest space news", "Look up how to make pasta" |
-| **Navigation** | "Google 'GitHub'", "Search for 'Tauri documentation'" |
-| **App Control** | "Open Notepad", "Launch Chrome", "Start Spotify" |
-| **System** | "Focus on Discord", "Hide Jen", "Go away" |
+| **Media** | "Pause", "Resume", "Next song", "Previous track", "Stop music" |
+| **Music Search** | "Play Bohemian Rhapsody", "Listen to Daft Punk", "Search and play Lo-fi" |
+| **Search** | "Search Google for latest space news", "Look up how to make pasta", "Google GitHub" |
+| **App Launch** | "Open Notepad", "Launch Chrome", "Start Spotify", "Run VS Code" |
+| **Window Control** | "Minimize Discord", "Maximize Chrome", "Close Notepad", "Switch to Firefox", "Focus Slack" |
+| **Screenshot** | "Take a screenshot", "Screenshot", "Capture screen", "Snap screen" |
+| **Clipboard** | "Copy", "Paste", "Cut", "Copy that", "Paste that" |
+| **Keyboard Shortcuts** | "Undo", "Redo", "Save", "Select all", "New tab", "Close tab", "Reopen tab", "Zoom in", "Zoom out", "Refresh", "Find", "Go back", "Go forward", "Show desktop", "New window", "Close application" |
+| **Quick Launch** | "Open Calculator", "File Explorer", "Snipping Tool", "Notepad", "Paint", "Terminal", "PowerShell", "Task Manager", "Control Panel", "Windows Settings", "Edge", "Firefox" |
+| **Volume** | "Volume up", "Volume down", "Mute", "Unmute", "Increase volume", "Decrease volume" |
+| **Brightness** | "Brightness up", "Brighter", "Brightness down", "Dimmer", "Dim screen" |
+| **Power** *(protection off)* | "Lock screen", "Sleep", "Hibernate", "Restart", "Shut down", "Turn off" |
+
+> **Note:** Power commands (lock, sleep, hibernate, restart, shutdown) are **blocked by default**. Toggle **Sensitive Command Protection** off in Settings to enable them.
+
+---
+
+## Settings
+
+Open Settings from the system tray icon (right-click → Settings).
+
+| Setting | Description |
+| :--- | :--- |
+| **Launch on Startup** | Start Jen automatically when Windows boots |
+| **Audio Feedback** | Play chime sounds when Jen detects a wake word or finishes a command |
+| **Sensitive Command Protection** | Block voice-triggered power commands (lock, sleep, restart, shutdown). Toggle off to allow them. When a blocked command is attempted, the orb flashes red as feedback. |
+| **Activation Hotkey** | Customize the keyboard shortcut to manually trigger Jen (default: `Ctrl+Shift+R`) |
 
 ---
 
@@ -66,7 +91,6 @@ The vision for Jen is to become a deeply integrated, privacy-first Windows compa
 ---
 
 ## Installation
-
 
 Jen is currently optimized for **Windows**.
 
@@ -110,7 +134,7 @@ Want to contribute or build Jen yourself?
    ```
 3. Install Python dependencies (for the STT sidecar):
    ```bash
-   pip install numpy openwakeword SpeechRecognition pyaudio thefuzz PyAutoGUI PyGetWindow onnxruntime
+   pip install numpy openwakeword SpeechRecognition pyaudio thefuzz PyAutoGUI PyGetWindow onnxruntime screen-brightness-control
    ```
 4. Run in development mode:
    ```bash
