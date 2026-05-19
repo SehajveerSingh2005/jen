@@ -46,6 +46,30 @@ jobs:
           ref_name = os.environ.get('REF_NAME', '')
           ref_type = os.environ.get('REF_TYPE', '')
           
+          def letters_to_number(s):
+              s_clean = s.lower().strip()
+              if s_clean in ('a', 'alpha'):
+                  return '1'
+              if s_clean in ('b', 'beta'):
+                  return '2'
+              if s_clean in ('rc', 'releasecandidate'):
+                  return '3'
+              if s_clean.isdigit():
+                  return s_clean
+              res = ''
+              for char in s_clean:
+                  if char.isdigit():
+                      res += char
+                  elif char.isalpha():
+                      res += str(ord(char) - ord('a') + 1)
+              try:
+                  val = int(res)
+                  if val > 65535:
+                      val = val % 65536
+                  return str(val)
+              except ValueError:
+                  return '1'
+
           # Read current version from tauri.conf.json as fallback
           conf_path = 'src-tauri/tauri.conf.json'
           with open(conf_path, 'r', encoding='utf-8') as f:
@@ -65,7 +89,8 @@ jobs:
                   if pre:
                       pre_clean = pre.lstrip('-').lstrip('.')
                       if pre_clean:
-                          semver += f'-{pre_clean}'
+                          pre_numeric = letters_to_number(pre_clean)
+                          semver += f'-{pre_numeric}'
                   version = semver
               else:
                   version = tag
