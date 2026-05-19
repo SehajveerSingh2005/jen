@@ -1,9 +1,24 @@
-numpy
-openwakeword
-SpeechRecognition
-pyaudio
-thefuzz
-PyAutoGUI
-PyGetWindow
-onnxruntime
+# Jen STT Sidecar — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Audio & wake word
+numpy>=2.4.4
+openwakeword>=0.6.0
+pyaudio>=0.2.14
+onnxruntime>=1.25.1
+
+# Speech recognition
+SpeechRecognition>=3.16.1
+
+# Intent matching
+thefuzz>=0.22.1
+
+# System automation
+PyAutoGUI>=0.9.54
+PyGetWindow>=0.0.9
+
+# Brightness control (WMI / DDC-CI)
+screen-brightness-control>=0.27.1
+
+# Build tooling
 pyinstaller
