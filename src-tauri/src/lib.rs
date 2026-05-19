@@ -19,6 +19,7 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_updater::UpdaterExt;
 
 #[derive(Debug, Clone, Serialize, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -78,6 +79,51 @@ fn play_error_sound(app: &tauri::AppHandle) {
         let handle = state.audio_handle.lock().unwrap();
         play_sound(&handle, ERROR_MP3);
     }
+}
+
+#[derive(Serialize)]
+struct UpdateInfo {
+    available: bool,
+    version: Option<String>,
+    body: Option<String>,
+}
+
+#[tauri::command]
+fn get_app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+#[tauri::command]
+async fn check_for_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater.check().await.map_err(|e| e.to_string())?;
+    
+    if let Some(update) = update {
+        Ok(UpdateInfo {
+            available: true,
+            version: Some(update.version.clone()),
+            body: update.body.clone(),
+        })
+    } else {
+        Ok(UpdateInfo {
+            available: false,
+            version: None,
+            body: None,
+        })
+    }
+}
+
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater.check().await.map_err(|e| e.to_string())?;
+    
+    if let Some(update) = update {
+        update.download_and_install(|_chunk_length, _pending_length| {}, || {})
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -216,6 +262,37 @@ pub fn run() {
         })
         .setup(move |app| {
             let app_handle = app.handle().clone();
+
+            // Check for updates on launch
+            let update_app_handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                // Wait 6 seconds for main window startup to settle
+                tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+                if let Ok(updater) = update_app_handle.updater() {
+                    if let Ok(Some(update)) = updater.check().await {
+                        println!("Auto-update check on launch: new update available (v{})", update.version);
+                        let app = update_app_handle.clone();
+                        let app_inner = app.clone();
+                        let _ = app.run_on_main_thread(move || {
+                            if let Some(window) = app_inner.get_webview_window("settings") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            } else {
+                                let _ = tauri::WebviewWindowBuilder::new(
+                                    &app_inner,
+                                    "settings",
+                                    tauri::WebviewUrl::App("settings.html".into()),
+                                )
+                                .title("Jen Settings")
+                                .inner_size(400.0, 500.0)
+                                .resizable(false)
+                                .decorations(false)
+                                .build();
+                            }
+                        });
+                    }
+                }
+            });
 
             // Spawn audio output monitor
             let audio_app_handle = app_handle.clone();
@@ -695,7 +772,16 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![toggle_playback, media_command, register_shortcut, set_audio_feedback, set_sensitive_protection])
+        .invoke_handler(tauri::generate_handler![
+            toggle_playback, 
+            media_command, 
+            register_shortcut, 
+            set_audio_feedback, 
+            set_sensitive_protection,
+            get_app_version,
+            check_for_update,
+            install_update
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

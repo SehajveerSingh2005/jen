@@ -4,7 +4,7 @@ import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { load } from "@tauri-apps/plugin-store";
-import { Settings as SettingsIcon, Bell, Rocket, X, Keyboard, RotateCcw, Shield } from "lucide-react";
+import { Settings as SettingsIcon, Bell, Rocket, X, Keyboard, RotateCcw, Shield, RefreshCw, ArrowUpCircle } from "lucide-react";
 import "./index.css";
 
 
@@ -16,6 +16,11 @@ function SettingsApp() {
   const [sensitiveProtection, setSensitiveProtection] = useState(true);
   const [hotkey, setHotkey] = useState("Ctrl+Shift+R");
   const [isRecording, setIsRecording] = useState(false);
+  const [appVersion, setAppVersion] = useState("0.1.0");
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<{ version: string; body: string } | null>(null);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -34,6 +39,9 @@ function SettingsApp() {
 
         const savedProtection = await store.get<boolean>("sensitive_protection");
         setSensitiveProtection(typeof savedProtection === "boolean" ? savedProtection : true);
+
+        const ver = await invoke<string>("get_app_version");
+        setAppVersion(ver);
       } catch (e) {
         console.error("Failed to load settings:", e);
       }
@@ -138,6 +146,55 @@ function SettingsApp() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isRecording, stopRecording]);
+
+  const handleCheckForUpdates = async (isAuto: boolean | React.MouseEvent = false) => {
+    const auto = isAuto === true;
+    setCheckingUpdate(true);
+    if (!auto) {
+      setUpdateStatus(null);
+    }
+    setUpdateInfo(null);
+    try {
+      const res = await invoke<{ available: boolean; version: string | null; body: string | null }>("check_for_update");
+      if (res.available && res.version) {
+        setUpdateInfo({
+          version: res.version,
+          body: res.body || "No release notes provided."
+        });
+      } else {
+        if (!auto) {
+          setUpdateStatus("Jen is up to date!");
+          setTimeout(() => setUpdateStatus(null), 3000);
+        }
+      }
+    } catch (e) {
+      console.error("Check for update failed:", e);
+      if (!auto) {
+        setUpdateStatus("Failed to check for updates");
+        setTimeout(() => setUpdateStatus(null), 4000);
+      }
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    setInstallingUpdate(true);
+    setUpdateStatus("Downloading and installing update...");
+    try {
+      await invoke("install_update");
+    } catch (e) {
+      console.error("Install update failed:", e);
+      setUpdateStatus("Failed to install update");
+      setInstallingUpdate(false);
+      setTimeout(() => setUpdateStatus(null), 4000);
+    }
+  };
+
+  useEffect(() => {
+    // Automatically check for updates silently on settings mount
+    handleCheckForUpdates(true);
+  }, []);
 
   return (
     <div className="h-screen w-screen bg-[#0a0a0a] text-slate-200 font-sans flex flex-col selection:bg-sky-500/30 overflow-hidden border border-white/10 rounded-xl shadow-2xl">
@@ -301,13 +358,76 @@ function SettingsApp() {
             </div>
           </section>
 
+          {/* Updates Section */}
+          <section className="space-y-3">
+            <h2 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">Updates</h2>
+            <div className="bg-slate-900/40 border border-white/5 rounded-2xl p-4 space-y-4 backdrop-blur-sm">
+              <div className="flex items-center justify-between group">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center border border-white/5 transition-colors group-hover:border-sky-500/30">
+                    <RefreshCw className={`w-4 h-4 text-slate-400 group-hover:text-sky-400 ${checkingUpdate ? 'animate-spin' : ''}`} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-slate-200">Software Update</p>
+                    <p className="text-[11px] text-slate-500 leading-none mt-1">
+                      Current version: {appVersion}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleCheckForUpdates}
+                  disabled={checkingUpdate || installingUpdate}
+                  className="px-3 py-1 rounded-lg border border-white/5 bg-slate-800 text-[10px] font-medium text-slate-200 hover:text-sky-400 hover:border-sky-500/50 transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  {checkingUpdate ? "Checking..." : "Check"}
+                </button>
+              </div>
+
+              {updateStatus && (
+                <div className="text-[11px] text-sky-400 bg-sky-500/10 px-3 py-2 rounded-xl border border-sky-500/20 text-center animate-fade-in">
+                  {updateStatus}
+                </div>
+              )}
+
+              {updateInfo && (
+                <div className="bg-slate-800/50 border border-sky-500/20 rounded-xl p-3.5 space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-white">Update Available: v{updateInfo.version}</p>
+                      <p className="text-[10px] text-slate-400 mt-1 max-h-[80px] overflow-y-auto font-mono custom-scrollbar pr-2 whitespace-pre-line">
+                        {updateInfo.body}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleInstallUpdate}
+                    disabled={installingUpdate}
+                    className="w-full py-1.5 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-semibold transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    {installingUpdate ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        Installing...
+                      </>
+                    ) : (
+                      <>
+                        <ArrowUpCircle className="w-3.5 h-3.5" />
+                        Install and Restart
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+
           {/* Footer info */}
           <footer className="pt-8 pb-4 flex flex-col items-center gap-2 border-t border-white/5">
              <div className="text-[10px] text-slate-600 font-medium tracking-wide">
                made with love by sehaz
              </div>
              <div className="text-[9px] text-slate-700 uppercase tracking-[0.2em] font-bold">
-               Version 0.1.0
+               Version {appVersion}
              </div>
           </footer>
         </main>
