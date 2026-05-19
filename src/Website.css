@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --bg-color: #fcfcfc;
   --text-main: #1d1d1f;
@@ -7,14 +9,21 @@
   --accent-soft: #e8e8ed;
 }
 
+:root.dark {
+  --bg-color: #0A0A0A;
+  --text-main: #f5f5f7;
+  --text-muted: #86868b;
+  --accent-soft: #1d1d1f;
+}
+
 @layer base {
   body {
-    @apply bg-[var(--bg-color)] text-[var(--text-main)] font-sans antialiased selection:bg-black selection:text-white;
+    @apply bg-[var(--bg-color)] text-[var(--text-main)] font-sans antialiased selection:bg-black selection:text-white dark:selection:bg-white dark:selection:text-black;
   }
 }
 
 .hero-text {
-  @apply text-6xl md:text-8xl font-medium tracking-tight leading-[1] text-center;
+  @apply text-6xl md:text-8xl font-medium tracking-tight leading-[1] text-center text-black dark:text-white;
 }
 
 .sub-text {
@@ -22,15 +31,15 @@
 }
 
 .glass-nav {
-  @apply fixed top-0 left-0 right-0 z-50 h-16 flex items-center justify-between px-8 bg-[#fcfcfc]/70 backdrop-blur-xl border-b border-[#e8e8ed];
+  @apply fixed top-0 left-0 right-0 z-50 h-16 flex items-center justify-between px-8 bg-[#fcfcfc]/70 dark:bg-[#0A0A0A]/70 backdrop-blur-xl border-b border-[#e8e8ed] dark:border-[#1d1d1f];
 }
 
 .btn-primary {
-  @apply px-8 py-4 bg-[#1d1d1f] text-white rounded-full font-medium transition-all hover:scale-105 active:scale-95 shadow-lg shadow-black/5;
+  @apply px-8 py-4 bg-[#1d1d1f] dark:bg-white text-white dark:text-[#1d1d1f] rounded-full font-medium transition-all hover:scale-105 active:scale-95 shadow-lg shadow-black/5 dark:shadow-white/5;
 }
 
 .btn-secondary {
-  @apply px-8 py-4 bg-white border border-[#e8e8ed] text-[#1d1d1f] rounded-full font-medium transition-all hover:bg-[#f5f5f7] active:scale-95;
+  @apply px-8 py-4 bg-white dark:bg-[#1d1d1f] border border-[#e8e8ed] dark:border-white/10 text-[#1d1d1f] dark:text-white rounded-full font-medium transition-all hover:bg-[#f5f5f7] dark:hover:bg-white/5 active:scale-95;
 }
 
 /* 
@@ -38,7 +47,7 @@
  * Uses layered shadows and blurred backgrounds to achieve an Apple-esque feel
  */
 .showcase-widget {
-  @apply p-8 bg-white/70 backdrop-blur-3xl border border-white shadow-[0_24px_48px_rgba(0,0,0,0.06),_0_0_0_1px_rgba(0,0,0,0.02)] rounded-[2.5rem];
+  @apply p-8 bg-white/70 dark:bg-white/[0.03] backdrop-blur-3xl border border-white dark:border-white/5 shadow-[0_24px_48px_rgba(0,0,0,0.06),_0_0_0_1px_rgba(0,0,0,0.02)] dark:shadow-[0_24px_48px_rgba(0,0,0,0.4)] rounded-[2.5rem];
 }
 
 .grain-overlay {
