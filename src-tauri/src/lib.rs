@@ -87,6 +87,15 @@ fn set_audio_feedback(state: tauri::State<'_, AppState>, enabled: bool) {
 }
 
 #[tauri::command]
+fn set_sensitive_protection(state: tauri::State<'_, AppState>, enabled: bool) {
+    let msg = if enabled { b"protect:1\n" as &[u8] } else { b"protect:0\n" };
+    let mut child_guard = state.python_child.lock().unwrap();
+    if let Some(child) = child_guard.as_mut() {
+        let _ = child.write(msg);
+    }
+}
+
+#[tauri::command]
 async fn toggle_playback() -> Result<(), String> {
     let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
         .map_err(|e| e.to_string())?
@@ -465,11 +474,24 @@ pub fn run() {
 
                     let (mut rx, child) = cmd.spawn().expect("Failed to spawn STT process");
 
-                    // Store the child handle
+                    // Store the child handle and send initial protection state
                     {
                         let state = stt_app_handle.state::<AppState>();
-                        *state.python_child.lock().unwrap() = Some(child);
+                        let protect_enabled = if let Ok(store) = stt_app_handle.store("settings.json") {
+                            store.get("sensitive_protection")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(true)
+                        } else {
+                            true
+                        };
+                        let mut child_guard = state.python_child.lock().unwrap();
+                        *child_guard = Some(child);
+                        if let Some(ref mut c) = *child_guard {
+                            let msg = if protect_enabled { b"protect:1\n" as &[u8] } else { b"protect:0\n" };
+                            let _ = c.write(msg);
+                        }
                     }
+
 
                     while let Some(event) = rx.recv().await {
                         match event {
@@ -605,6 +627,32 @@ pub fn run() {
                                                         .unwrap();
                                                 }
                                             }
+                                            Some("blocked_sensitive") => {
+                                                println!("Sensitive command blocked (protection on): {}", json["text"].as_str().unwrap_or(""));
+                                                play_error_sound(&stt_app_handle);
+                                                {
+                                                    let mut s = state_lock.state.lock().unwrap();
+                                                    *s = OrbState::Error;
+                                                }
+                                                stt_app_handle
+                                                    .emit("orb-state-change", OrbState::Error)
+                                                    .unwrap();
+                                                let h = stt_app_handle.clone();
+                                                tauri::async_runtime::spawn(async move {
+                                                    tokio::time::sleep(
+                                                        std::time::Duration::from_secs(4),
+                                                    ).await;
+                                                    let state_lock = h.state::<AppState>();
+                                                    let mut s = state_lock.state.lock().unwrap();
+                                                    if matches!(*s, OrbState::Error) {
+                                                        *s = OrbState::Idle;
+                                                        h.emit("orb-state-change", OrbState::Idle).unwrap();
+                                                        if let Some(window) = h.get_webview_window("main") {
+                                                            let _ = window.hide();
+                                                        }
+                                                    }
+                                                });
+                                            }
                                             Some("media_control") => {
                                                 let cmd =
                                                     json["command"].as_str().unwrap_or("toggle");
@@ -647,7 +695,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![toggle_playback, media_command, register_shortcut, set_audio_feedback])
+        .invoke_handler(tauri::generate_handler![toggle_playback, media_command, register_shortcut, set_audio_feedback, set_sensitive_protection])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

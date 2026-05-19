@@ -13,6 +13,11 @@ import pyautogui
 import pygetwindow as gw
 import threading
 import traceback
+try:
+    import screen_brightness_control as sbc
+    SBC_AVAILABLE = True
+except ImportError:
+    SBC_AVAILABLE = False
 
 # Disable TQDM progress bars
 os.environ["TQDM_DISABLE"] = "1"
@@ -20,8 +25,9 @@ os.environ["TQDM_DISABLE"] = "1"
 # Disable pyautogui failsafe to prevent crashes from rapid mouse movements
 pyautogui.FAILSAFE = False
 
-# Global flag for manual trigger
+# Global flags
 trigger_manual = False
+protect_sensitive = True  # Default: on; controlled via stdin from Rust
 
 def log_debug(msg):
     try:
@@ -31,14 +37,19 @@ def log_debug(msg):
         pass
 
 def listen_stdin():
-    global trigger_manual
+    global trigger_manual, protect_sensitive
     while True:
         try:
             line = sys.stdin.readline()
             if not line:
                 os._exit(0)
-            if line.strip() == "trigger":
+            cmd = line.strip()
+            if cmd == "trigger":
                 trigger_manual = True
+            elif cmd == "protect:1":
+                protect_sensitive = True
+            elif cmd == "protect:0":
+                protect_sensitive = False
         except:
             os._exit(0)
 
@@ -60,6 +71,41 @@ INTENTS = {
     "media_control": [
         "pause", "resume", "next", "skip", "previous", "back", "stop music", "pause music",
         "play music", "resume music", "skip 5 seconds", "rewind 5 seconds", "forward", "rewind", "play"
+    ],
+    # --- System commands ---
+    "screenshot": [
+        "take a screenshot", "screenshot", "take screenshot", "capture screen",
+        "capture the screen", "snap screen", "take a snap"
+    ],
+    "clipboard": [
+        "copy", "paste", "cut", "copy that", "paste that", "cut that"
+    ],
+    "keyboard_shortcut": [
+        "undo", "redo", "select all", "save", "save file", "new tab", "close tab",
+        "reopen tab", "open new tab", "close current tab", "refresh", "reload",
+        "find", "open find", "zoom in", "zoom out", "reset zoom", "go back", "go forward",
+        "open settings", "open task manager", "task manager", "open run", "run dialog",
+        "show desktop", "new window", "open new window", "close application", "force close",
+        "switch tab", "next tab", "previous tab"
+    ],
+    "quick_launch": [
+        "open calculator", "calculator", "open file explorer", "file explorer", "files",
+        "open browser", "open chrome", "open edge", "open firefox",
+        "open notepad", "notepad", "open paint", "open snipping tool", "snipping tool",
+        "open terminal", "open command prompt", "open powershell", "open task manager",
+        "open system settings", "open windows settings", "system settings", "settings",
+        "open control panel", "control panel", "open device manager"
+    ],
+    "power_control": [
+        "lock screen", "lock", "lock computer", "lock pc",
+        "sleep", "sleep mode", "put to sleep", "go to sleep",
+        "hibernate", "hibernation",
+        "restart", "reboot", "restart computer", "reboot computer",
+        "shutdown", "shut down", "turn off", "power off", "shut down computer"
+    ],
+    "brightness_control": [
+        "brightness up", "increase brightness", "brighter",
+        "brightness down", "decrease brightness", "dimmer", "dim screen"
     ]
 }
 
@@ -138,6 +184,140 @@ def execute_automation(intent_data):
                 search_query = f"site:youtube.com {song} official audio"
                 url = f"https://www.google.com/search?q={search_query}&btnI=1&autoplay=1&mute=0"
                 webbrowser.open(url)
+        elif intent == "screenshot":
+            # Win+PrintScreen saves to ~/Pictures/Screenshots automatically
+            pyautogui.hotkey('win', 'prtsc')
+        elif intent == "clipboard":
+            if any(k in raw_text for k in ["paste"]):
+                pyautogui.hotkey('ctrl', 'v')
+            elif any(k in raw_text for k in ["cut"]):
+                pyautogui.hotkey('ctrl', 'x')
+            else:  # copy (default)
+                pyautogui.hotkey('ctrl', 'c')
+        elif intent == "keyboard_shortcut":
+            if "undo" in raw_text:
+                pyautogui.hotkey('ctrl', 'z')
+            elif "redo" in raw_text:
+                pyautogui.hotkey('ctrl', 'y')
+            elif "select all" in raw_text:
+                pyautogui.hotkey('ctrl', 'a')
+            elif any(k in raw_text for k in ["save file", "save"]):
+                pyautogui.hotkey('ctrl', 's')
+            elif any(k in raw_text for k in ["reopen tab"]):
+                pyautogui.hotkey('ctrl', 'shift', 't')
+            elif any(k in raw_text for k in ["new tab", "open new tab"]):
+                pyautogui.hotkey('ctrl', 't')
+            elif any(k in raw_text for k in ["close tab", "close current tab"]):
+                pyautogui.hotkey('ctrl', 'w')
+            elif any(k in raw_text for k in ["new window", "open new window"]):
+                pyautogui.hotkey('ctrl', 'n')
+            elif any(k in raw_text for k in ["close application", "force close"]):
+                pyautogui.hotkey('alt', 'f4')
+            elif any(k in raw_text for k in ["refresh", "reload"]):
+                pyautogui.press('f5')
+            elif any(k in raw_text for k in ["find", "open find"]):
+                pyautogui.hotkey('ctrl', 'f')
+            elif "zoom in" in raw_text:
+                pyautogui.hotkey('ctrl', '+')
+            elif "zoom out" in raw_text:
+                pyautogui.hotkey('ctrl', '-')
+            elif "reset zoom" in raw_text:
+                pyautogui.hotkey('ctrl', '0')
+            elif "go back" in raw_text:
+                pyautogui.hotkey('alt', 'left')
+            elif "go forward" in raw_text:
+                pyautogui.hotkey('alt', 'right')
+            elif any(k in raw_text for k in ["task manager"]):
+                pyautogui.hotkey('ctrl', 'shift', 'esc')
+            elif any(k in raw_text for k in ["run dialog", "open run"]):
+                pyautogui.hotkey('win', 'r')
+            elif "show desktop" in raw_text:
+                pyautogui.hotkey('win', 'd')
+            elif any(k in raw_text for k in ["open settings", "settings"]):
+                pyautogui.hotkey('win', 'i')
+            elif "next tab" in raw_text:
+                pyautogui.hotkey('ctrl', 'tab')
+            elif any(k in raw_text for k in ["previous tab", "switch tab"]):
+                pyautogui.hotkey('ctrl', 'shift', 'tab')
+        elif intent == "quick_launch":
+            if any(k in raw_text for k in ["calculator", "calc"]):
+                import subprocess
+                subprocess.Popen(["calc.exe"])
+            elif any(k in raw_text for k in ["file explorer", "files", "explorer"]):
+                import subprocess
+                subprocess.Popen(["explorer.exe"])
+            elif any(k in raw_text for k in ["notepad"]):
+                import subprocess
+                subprocess.Popen(["notepad.exe"])
+            elif any(k in raw_text for k in ["paint"]):
+                import subprocess
+                subprocess.Popen(["mspaint.exe"])
+            elif any(k in raw_text for k in ["snipping tool", "snip"]):
+                import subprocess
+                subprocess.Popen(["snippingtool.exe"])
+            elif any(k in raw_text for k in ["powershell"]):
+                import subprocess
+                subprocess.Popen(["powershell.exe"])
+            elif any(k in raw_text for k in ["command prompt", "cmd"]):
+                import subprocess
+                subprocess.Popen(["cmd.exe"])
+            elif any(k in raw_text for k in ["terminal"]):
+                import subprocess
+                subprocess.Popen(["wt.exe"])  # Windows Terminal
+            elif any(k in raw_text for k in ["task manager"]):
+                import subprocess
+                subprocess.Popen(["taskmgr.exe"])
+            elif any(k in raw_text for k in ["control panel"]):
+                import subprocess
+                subprocess.Popen(["control.exe"])
+            elif any(k in raw_text for k in ["device manager"]):
+                import subprocess
+                subprocess.Popen(["devmgmt.msc"])
+            elif any(k in raw_text for k in ["system settings", "windows settings", "settings"]):
+                import subprocess
+                subprocess.Popen(["ms-settings:"], shell=True)
+            elif any(k in raw_text for k in ["chrome"]):
+                import subprocess
+                subprocess.Popen(["chrome.exe"])
+            elif any(k in raw_text for k in ["edge"]):
+                import subprocess
+                subprocess.Popen(["msedge.exe"])
+            elif any(k in raw_text for k in ["firefox"]):
+                import subprocess
+                subprocess.Popen(["firefox.exe"])
+            elif any(k in raw_text for k in ["browser"]):
+                import webbrowser
+                webbrowser.open("about:newtab")
+        elif intent == "power_control":
+            if protect_sensitive:
+                print(json.dumps({"status": "blocked_sensitive", "intent": "power_control", "text": raw_text}), flush=True)
+                return
+            import subprocess
+            if any(k in raw_text for k in ["lock screen", "lock computer", "lock pc", "lock"]):
+                subprocess.Popen(["rundll32.exe", "user32.dll,LockWorkStation"])
+            elif any(k in raw_text for k in ["sleep mode", "put to sleep", "go to sleep", "sleep"]):
+                subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0", "1", "0"])
+            elif any(k in raw_text for k in ["hibernate", "hibernation"]):
+                subprocess.Popen(["shutdown.exe", "/h"])
+            elif any(k in raw_text for k in ["restart", "reboot"]):
+                subprocess.Popen(["shutdown.exe", "/r", "/t", "5"])
+            elif any(k in raw_text for k in ["shutdown", "shut down", "turn off", "power off"]):
+                subprocess.Popen(["shutdown.exe", "/s", "/t", "5"])
+        elif intent == "brightness_control":
+            direction = "up" if any(k in raw_text for k in ["up", "increase", "brighter"]) else "down"
+            def _do_brightness(d=direction):
+                try:
+                    if SBC_AVAILABLE:
+                        current = sbc.get_brightness(display=0)
+                        if isinstance(current, list): current = current[0]
+                        delta = 10 if d == "up" else -10
+                        new_val = max(0, min(100, current + delta))
+                        sbc.set_brightness(new_val, display=0)
+                    else:
+                        log_debug("screen_brightness_control not available; brightness command skipped")
+                except Exception as e:
+                    log_debug(f"Brightness error: {e}")
+            threading.Thread(target=_do_brightness, daemon=True).start()
     except Exception as e:
         log_debug(f"Error executing automation: {e}")
 

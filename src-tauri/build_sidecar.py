@@ -92,6 +92,8 @@ def build():
         "--hidden-import=onnxruntime",
         "--hidden-import=speech_recognition",
         "--hidden-import=pyaudio",
+        "--hidden-import=screen_brightness_control",
+        "--hidden-import=wmi",
         "--name=stt",
         script_path
     ]

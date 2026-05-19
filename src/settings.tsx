@@ -4,7 +4,7 @@ import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { load } from "@tauri-apps/plugin-store";
-import { Settings as SettingsIcon, Bell, Rocket, X, Keyboard, RotateCcw } from "lucide-react";
+import { Settings as SettingsIcon, Bell, Rocket, X, Keyboard, RotateCcw, Shield } from "lucide-react";
 import "./index.css";
 
 
@@ -13,6 +13,7 @@ const appWindow = getCurrentWindow();
 function SettingsApp() {
   const [autostart, setAutostart] = useState(false);
   const [audioCues, setAudioCues] = useState(true);
+  const [sensitiveProtection, setSensitiveProtection] = useState(true);
   const [hotkey, setHotkey] = useState("Ctrl+Shift+R");
   const [isRecording, setIsRecording] = useState(false);
 
@@ -30,6 +31,9 @@ function SettingsApp() {
         if (typeof savedAudioCues === "boolean") {
           setAudioCues(savedAudioCues);
         }
+
+        const savedProtection = await store.get<boolean>("sensitive_protection");
+        setSensitiveProtection(typeof savedProtection === "boolean" ? savedProtection : true);
       } catch (e) {
         console.error("Failed to load settings:", e);
       }
@@ -59,6 +63,17 @@ function SettingsApp() {
       await invoke("set_audio_feedback", { enabled: val });
     } catch (e) {
       console.error("Failed to update audio cues:", e);
+    }
+  };
+
+  const updateSensitiveProtection = async (val: boolean) => {
+    try {
+      setSensitiveProtection(val);
+      const store = await load("settings.json");
+      await store.set("sensitive_protection", val);
+      await invoke("set_sensitive_protection", { enabled: val });
+    } catch (e) {
+      console.error("Failed to update sensitive protection:", e);
     }
   };
 
@@ -208,6 +223,30 @@ function SettingsApp() {
                   className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none ${audioCues ? 'bg-sky-500' : 'bg-slate-700'}`}
                 >
                   <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${audioCues ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {/* Commands Section */}
+          <section className="space-y-3">
+            <h2 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">Commands</h2>
+            <div className="bg-slate-900/40 border border-white/5 rounded-2xl p-4 backdrop-blur-sm">
+              <div className="flex items-center justify-between group">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center border border-white/5 transition-colors group-hover:border-amber-500/30">
+                    <Shield className="w-4 h-4 text-slate-400 group-hover:text-amber-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-slate-200">Sensitive Command Protection</p>
+                    <p className="text-[11px] text-slate-500 leading-none mt-1">Block power commands (shutdown, restart, sleep…)</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => updateSensitiveProtection(!sensitiveProtection)}
+                  className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none ${sensitiveProtection ? 'bg-amber-500' : 'bg-slate-700'}`}
+                >
+                  <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${sensitiveProtection ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
             </div>
