@@ -10,8 +10,8 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async ({ mode }) => ({
   plugins: [react(), tailwindcss()],
 
-  // GitHub Pages deployment base path
-  base: process.env.GITHUB_PAGES ? "/jen/" : "/",
+  // GitHub Pages: "/" for custom domain, "/jen/" for username.github.io/jen/
+  base: process.env.GITHUB_PAGES && !process.env.CUSTOM_DOMAIN ? "/jen/" : "/",
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   clearScreen: false,
