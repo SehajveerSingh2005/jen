@@ -39,7 +39,10 @@ export function Orb({
   className,
 }: OrbProps) {
   return (
-    <div className={className ?? "relative h-full w-full"}>
+    <div
+      className={className}
+      style={{ width: "100%", height: "100%", position: "relative" }}
+    >
       <Canvas
         resize={{ debounce: resizeDebounce }}
         gl={{
