@@ -409,6 +409,7 @@ def listen_and_transcribe():
                     except: pass
 
                 detected = False
+                history = {}
                 while True:
                     global trigger_manual
                     if trigger_manual:
@@ -423,11 +424,37 @@ def listen_and_transcribe():
                         break # Re-init
 
                     audio_data = np.frombuffer(data, dtype=np.int16)
+                    
+                    # 1. RMS Energy Check (filters silence/static and mic clipping from sneezes)
+                    rms = float(np.sqrt(np.mean(audio_data.astype(np.float32)**2)))
+                    if rms < 80.0 or rms > 9500.0:
+                        continue
+
+                    # 2. OpenWakeWord Prediction
                     prediction = oww_model.predict(audio_data)
+                    
+                    # 3. Multi-Frame History Verification (Debouncing transient sneezes, coughs & inhales)
                     for wakeword, prob in prediction.items():
-                        if prob > 0.3:
+                        if wakeword not in history:
+                            history[wakeword] = []
+                        
+                        history[wakeword].append(prob)
+                        if len(history[wakeword]) > 4:
+                            history[wakeword].pop(0)
+
+                        # Trigger criteria:
+                        # Genuine speech ("Hey Jen") lasts 400-800ms (5-10 frames), producing sustained high scores.
+                        # Sneezes/coughs produce a single 80ms transient spike.
+                        recent = history[wakeword]
+                        peak_prob = max(recent)
+                        high_frame_count = sum(1 for p in recent if p > 0.38)
+                        
+                        # Require peak >= 0.55 AND at least 2 frames > 0.38 in the last 4 frames
+                        if peak_prob >= 0.55 and high_frame_count >= 2:
+                            log_debug(f"Wake word confirmed: {wakeword} (prob={peak_prob:.2f}, rms={rms:.0f}, high_frames={high_frame_count})")
                             print(json.dumps({"status": "detected", "wakeword": wakeword}), flush=True)
                             detected = True
+                            history.clear()
                             break
                     if detected: break
             except:
