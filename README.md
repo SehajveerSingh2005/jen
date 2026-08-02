@@ -22,6 +22,9 @@
 ## Features
 
 - **Always Listening:** Hands-free interaction with a custom wake word ("Hey Jen").
+- **Noise-Resistant Engine:** Multi-frame debouncing and RMS volume gating to prevent false triggers from sneezes, coughs, or room noise.
+- **Voice Dictation:** Hands-free text typing directly into your currently active application.
+- **Keypress Commands:** Speak to hit keys like Enter, Spacebar, Tab, Escape, Backspace, or Arrow keys.
 - **Global Hotkey:** Quick manual trigger with `Ctrl+Shift+R` (customizable).
 - **Media Control:** Control Spotify, YouTube, or system media with voice (Play/Pause/Next/Prev).
 - **Smart Search:** Instant Google searches or "I'm Feeling Lucky" navigation.
@@ -48,6 +51,8 @@ Jen understands a variety of natural language intents. Here are some examples of
 
 | Category | Example Phrases |
 | :--- | :--- |
+| **Dictation / Typing** | "Type hello world", "Dictate python main.py", "Write meeting notes", "Type out npm run dev" |
+| **Button / Key Press** | "Press Enter", "Hit Space", "Press Tab", "Press Escape", "Press Backspace", "Press Up / Down / Left / Right" |
 | **Media** | "Pause", "Resume", "Next song", "Previous track", "Stop music" |
 | **Music Search** | "Play Bohemian Rhapsody", "Listen to Daft Punk", "Search and play Lo-fi" |
 | **Search** | "Search Google for latest space news", "Look up how to make pasta", "Google GitHub" |
