@@ -106,6 +106,16 @@ INTENTS = {
     "brightness_control": [
         "brightness up", "increase brightness", "brighter",
         "brightness down", "decrease brightness", "dimmer", "dim screen"
+    ],
+    "dictation": [
+        "type {text}", "type out {text}", "dictate {text}", "write {text}",
+        "type text {text}", "type this {text}"
+    ],
+    "button_press": [
+        "press enter", "hit enter", "enter key", "press space", "hit space", "spacebar", "press spacebar",
+        "press tab", "hit tab", "press escape", "hit escape", "press esc", "escape key",
+        "press backspace", "hit backspace", "backspace", "press delete", "hit delete",
+        "press up", "press down", "press left", "press right", "press {key}", "hit {key}"
     ]
 }
 
@@ -318,6 +328,38 @@ def execute_automation(intent_data):
                 except Exception as e:
                     log_debug(f"Brightness error: {e}")
             threading.Thread(target=_do_brightness, daemon=True).start()
+        elif intent == "dictation":
+            text_to_type = params.get("text", "")
+            if not text_to_type:
+                for prefix in ["type out ", "type text ", "type this ", "type ", "dictate ", "write "]:
+                    if raw_text.startswith(prefix):
+                        text_to_type = raw_text[len(prefix):].strip()
+                        break
+            if text_to_type:
+                print(json.dumps({"status": "hide"}), flush=True)
+                time.sleep(0.15)
+                pyautogui.write(text_to_type, interval=0.01)
+        elif intent == "button_press":
+            key_name = params.get("key", "").lower()
+            if not key_name:
+                key_name = raw_text.lower()
+            
+            mapped_key = None
+            if "enter" in key_name: mapped_key = "enter"
+            elif "space" in key_name: mapped_key = "space"
+            elif "tab" in key_name: mapped_key = "tab"
+            elif "escape" in key_name or "esc" in key_name: mapped_key = "escape"
+            elif "backspace" in key_name: mapped_key = "backspace"
+            elif "delete" in key_name: mapped_key = "delete"
+            elif "up" in key_name: mapped_key = "up"
+            elif "down" in key_name: mapped_key = "down"
+            elif "left" in key_name: mapped_key = "left"
+            elif "right" in key_name: mapped_key = "right"
+            
+            if mapped_key:
+                print(json.dumps({"status": "hide"}), flush=True)
+                time.sleep(0.15)
+                pyautogui.press(mapped_key)
     except Exception as e:
         log_debug(f"Error executing automation: {e}")
 
@@ -353,6 +395,16 @@ def parse_intent(text):
         for p in INTENTS["play_music"]:
             m = re.search(p.replace("{song}", "(.*)"), text)
             if m: params["song"] = m.group(1).strip(); break
+    elif detected_intent == "dictation":
+        for p in INTENTS["dictation"]:
+            if "{text}" in p:
+                m = re.search(p.replace("{text}", "(.*)"), text)
+                if m: params["text"] = m.group(1).strip(); break
+    elif detected_intent == "button_press":
+        for p in INTENTS["button_press"]:
+            if "{key}" in p:
+                m = re.search(p.replace("{key}", "(.*)"), text)
+                if m: params["key"] = m.group(1).strip(); break
     if highest_score > 70:
         return {"intent": detected_intent, "params": params, "score": highest_score}
     return None
