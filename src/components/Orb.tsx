@@ -26,7 +26,7 @@ type OrbProps = {
 export function Orb({
   colors = ["#CADCFC", "#A0B9D1"],
   colorsRef,
-  resizeDebounce = 100,
+  resizeDebounce = 0,
   seed,
   agentState = null,
   volumeMode = "auto",
@@ -111,6 +111,7 @@ function Scene({
   const manualOutRef = useRef<number>(manualOutput ?? 0)
   const curInRef = useRef(0)
   const curOutRef = useRef(0)
+  const entryScaleRef = useRef(0.2)
 
   useEffect(() => {
     agentRef.current = agentState
@@ -214,6 +215,14 @@ function Scene({
     u.uOutputVolume.value = curOutRef.current
     u.uColor1.value.lerp(targetColor1Ref.current, 0.08)
     u.uColor2.value.lerp(targetColor2Ref.current, 0.08)
+
+    const targetEntryScale = agentRef.current === null ? 0.2 : 1.0
+    // Smooth asymptotic lerp (pure smooth scale-up with zero bounce)
+    entryScaleRef.current += (targetEntryScale - entryScaleRef.current) * 0.12
+
+    if (circleRef.current) {
+      circleRef.current.scale.set(entryScaleRef.current, entryScaleRef.current, 1)
+    }
   })
 
   useEffect(() => {

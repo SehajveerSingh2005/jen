@@ -539,9 +539,19 @@ pub fn run() {
                 loop {
                     println!("Spawning STT sidecar...");
 
-                    // Use sidecar in production/build, or if the binary exists
+                    // In dev mode (debug_assertions), prefer running Python stt.py directly.
+                    // In release/production, use compiled sidecar executable.
+                    #[cfg(debug_assertions)]
+                    let cmd = if std::path::Path::new("src-tauri/stt.py").exists() {
+                        shell.command("python").args(["-u", "src-tauri/stt.py"])
+                    } else if std::path::Path::new("stt.py").exists() {
+                        shell.command("python").args(["-u", "stt.py"])
+                    } else {
+                        shell.sidecar("stt").unwrap()
+                    };
+
+                    #[cfg(not(debug_assertions))]
                     let cmd = shell.sidecar("stt").unwrap_or_else(|_| {
-                        // Fallback to python for dev. Try root and src-tauri paths.
                         if std::path::Path::new("src-tauri/stt.py").exists() {
                             shell.command("python").args(["-u", "src-tauri/stt.py"])
                         } else {

@@ -19,6 +19,17 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (state !== "idle") {
+      const t1 = setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
+      const t2 = setTimeout(() => window.dispatchEvent(new Event("resize")), 360);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    }
+  }, [state]);
+
   const orbProps = useMemo(() => {
     // Premium Metallic Silver-Blue palette (Lighter)
     const defaultColors: [string, string] = ["#f8fafc", "#94a3b8"]; 
@@ -64,14 +75,14 @@ function App() {
         {state !== "idle" && (
           <motion.div 
             key="orb-container"
-            initial={{ opacity: 0, scale: 0.5, filter: "blur(15px)" }}
-            animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-            exit={{ opacity: 0, scale: 0.3, filter: "blur(15px)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             transition={{ 
-              duration: 0.5,
-              ease: [0.34, 1.56, 0.64, 1], // Custom "Overshoot" ease for a premium pop
+              duration: 0.3,
+              ease: "easeOut",
             }}
-            className="w-48 h-48 overflow-visible"
+            className="w-48 h-48 overflow-visible flex items-center justify-center"
           >
             <div className="w-full h-full flex items-center justify-center">
               <Orb {...orbProps} className="w-48 h-48" />
