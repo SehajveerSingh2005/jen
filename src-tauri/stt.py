@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import time
+import random
 import numpy as np
 import openwakeword
 from openwakeword.model import Model
@@ -19,6 +20,12 @@ try:
 except ImportError:
     SBC_AVAILABLE = False
 
+try:
+    from tts import generate_tts_audio
+    TTS_AVAILABLE = True
+except ImportError:
+    TTS_AVAILABLE = False
+
 # Disable TQDM progress bars
 os.environ["TQDM_DISABLE"] = "1"
 
@@ -28,6 +35,8 @@ pyautogui.FAILSAFE = False
 # Global flags
 trigger_manual = False
 protect_sensitive = True  # Default: on; controlled via stdin from Rust
+tts_enabled = True  # Default: on; controlled via stdin from Rust
+tts_voice = "en-US-JennyNeural"  # Default voice; controlled via stdin from Rust
 
 def log_debug(msg):
     try:
@@ -37,7 +46,7 @@ def log_debug(msg):
         pass
 
 def listen_stdin():
-    global trigger_manual, protect_sensitive
+    global trigger_manual, protect_sensitive, tts_enabled, tts_voice
     while True:
         try:
             line = sys.stdin.readline()
@@ -50,6 +59,23 @@ def listen_stdin():
                 protect_sensitive = True
             elif cmd == "protect:0":
                 protect_sensitive = False
+            elif cmd == "tts:1":
+                tts_enabled = True
+            elif cmd == "tts:0":
+                tts_enabled = False
+            elif cmd.startswith("tts_voice:"):
+                tts_voice = cmd.split(":", 1)[1].strip() or "en-US-JennyNeural"
+            elif cmd.startswith("preview_voice:"):
+                preview_voice = cmd.split(":", 1)[1].strip()
+                if preview_voice and TTS_AVAILABLE:
+                    def _preview():
+                        try:
+                            data = generate_tts_audio("Hello! I'm Jen, your desktop assistant.", preview_voice)
+                            if data:
+                                print(json.dumps({"status": "tts_audio", "data": data}), flush=True)
+                        except Exception as e:
+                            log_debug(f"Preview TTS error: {e}")
+                    threading.Thread(target=_preview, daemon=True).start()
         except:
             os._exit(0)
 
@@ -118,6 +144,32 @@ INTENTS = {
         "press up", "press down", "press left", "press right", "press {key}", "hit {key}"
     ]
 }
+
+GREETINGS = ["Yes?", "Hmm?", "Yes", "Go ahead", "I'm listening"]
+
+def send_tts(text):
+    """Generate TTS audio and send to Rust for playback."""
+    if not tts_enabled or not TTS_AVAILABLE:
+        return
+    try:
+        data = generate_tts_audio(text, tts_voice)
+        if data:
+            print(json.dumps({"status": "tts_audio", "data": data}), flush=True)
+    except Exception as e:
+        log_debug(f"TTS error: {e}")
+
+def send_tts_async(text):
+    """Generate TTS in background, send when ready."""
+    if not tts_enabled or not TTS_AVAILABLE:
+        return
+    def _worker():
+        try:
+            data = generate_tts_audio(text, tts_voice)
+            if data:
+                print(json.dumps({"status": "tts_audio", "data": data}), flush=True)
+        except Exception as e:
+            log_debug(f"TTS async error: {e}")
+    threading.Thread(target=_worker, daemon=True).start()
 
 def execute_automation(intent_data):
     try:
@@ -360,6 +412,9 @@ def execute_automation(intent_data):
                 print(json.dumps({"status": "hide"}), flush=True)
                 time.sleep(0.15)
                 pyautogui.press(mapped_key)
+        elif intent == "ai_response":
+            # No automation — just a conversational response for TTS
+            pass
     except Exception as e:
         log_debug(f"Error executing automation: {e}")
 
@@ -528,6 +583,11 @@ def listen_and_transcribe():
 
             if detected:
                 try:
+                    # Send a greeting before recording
+                    greeting = random.choice(GREETINGS)
+                    send_tts(greeting)
+                    time.sleep(0.6)  # Brief pause to let greeting start playing
+
                     with sr.Microphone(sample_rate=16000) as source:
                         try:
                             print(json.dumps({"status": "recording"}), flush=True)
@@ -536,11 +596,21 @@ def listen_and_transcribe():
                             print(json.dumps({"status": "transcribing"}), flush=True)
                             text = r.recognize_google(audio_clip)
                             res = parse_intent(text)
-                            if res: execute_automation(res)
+                            if res:
+                                execute_automation(res)
+                                # Speak a response for non-automation intents
+                                if res.get("intent") == "ai_response":
+                                    response_text = res.get("params", {}).get("text", "")
+                                    if response_text:
+                                        send_tts(response_text)
+                                else:
+                                    send_tts("Done!")
                             print(json.dumps({"status": "success", "text": text}), flush=True)
                         except sr.UnknownValueError:
+                            send_tts("Sorry, I didn't catch that.")
                             print(json.dumps({"status": "error", "message": "unknown"}), flush=True)
                         except Exception as e:
+                            send_tts("Something went wrong.")
                             print(json.dumps({"status": "error", "message": str(e)}), flush=True)
                             if audio:
                                 try: audio.terminate()

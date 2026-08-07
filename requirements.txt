@@ -20,5 +20,8 @@ PyGetWindow
 # Brightness control (WMI / DDC-CI)
 screen-brightness-control
 
+# Text-to-Speech
+edge-tts
+
 # Build tooling
 pyinstaller

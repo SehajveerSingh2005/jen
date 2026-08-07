@@ -13,7 +13,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW,
 };
 
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Source};
+use base64::Engine;
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use std::io::Cursor;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
@@ -44,6 +45,8 @@ struct AppState {
     pub audio_feedback: Mutex<bool>,
     pub current_shortcut: Mutex<Option<Shortcut>>,
     pub _audio_stream: Mutex<SendSyncWrapper<OutputStream>>,
+    pub tts_sink: Mutex<Option<Sink>>,
+    pub tts_enabled: Mutex<bool>,
 }
 
 const WAKE_MP3: &[u8] = include_bytes!("../assets/wake.mp3");
@@ -138,6 +141,37 @@ fn set_sensitive_protection(state: tauri::State<'_, AppState>, enabled: bool) {
     let mut child_guard = state.python_child.lock().unwrap();
     if let Some(child) = child_guard.as_mut() {
         let _ = child.write(msg);
+    }
+}
+
+#[tauri::command]
+fn set_tts_enabled(state: tauri::State<'_, AppState>, enabled: bool) {
+    {
+        let mut guard = state.tts_enabled.lock().unwrap();
+        *guard = enabled;
+    }
+    let msg = if enabled { b"tts:1\n" as &[u8] } else { b"tts:0\n" };
+    let mut child_guard = state.python_child.lock().unwrap();
+    if let Some(child) = child_guard.as_mut() {
+        let _ = child.write(msg);
+    }
+}
+
+#[tauri::command]
+fn set_tts_voice(state: tauri::State<'_, AppState>, voice: String) {
+    let msg = format!("tts_voice:{}\n", voice);
+    let mut child_guard = state.python_child.lock().unwrap();
+    if let Some(child) = child_guard.as_mut() {
+        let _ = child.write(msg.as_bytes());
+    }
+}
+
+#[tauri::command]
+fn preview_voice(state: tauri::State<'_, AppState>, voice: String) {
+    let msg = format!("preview_voice:{}\n", voice);
+    let mut child_guard = state.python_child.lock().unwrap();
+    if let Some(child) = child_guard.as_mut() {
+        let _ = child.write(msg.as_bytes());
     }
 }
 
@@ -259,6 +293,8 @@ pub fn run() {
             audio_feedback: Mutex::new(true),
             current_shortcut: Mutex::new(None),
             _audio_stream: Mutex::new(SendSyncWrapper(audio_stream)),
+            tts_sink: Mutex::new(None),
+            tts_enabled: Mutex::new(true),
         })
         .setup(move |app| {
             let app_handle = app.handle().clone();
@@ -564,18 +600,37 @@ pub fn run() {
                     // Store the child handle and send initial protection state
                     {
                         let state = stt_app_handle.state::<AppState>();
-                        let protect_enabled = if let Ok(store) = stt_app_handle.store("settings.json") {
-                            store.get("sensitive_protection")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(true)
-                        } else {
-                            true
-                        };
+                        let store = stt_app_handle.store("settings.json");
+
+                        let protect_enabled = store.as_ref().ok()
+                            .and_then(|s| s.get("sensitive_protection"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true);
+
+                        let tts_enabled_val = store.as_ref().ok()
+                            .and_then(|s| s.get("tts_enabled"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true);
+
+                        let tts_voice_val = store.as_ref().ok()
+                            .and_then(|s| s.get("tts_voice"))
+                            .and_then(|v| v.as_str().map(String::from))
+                            .unwrap_or_else(|| "en-US-JennyNeural".to_string());
+
+                        {
+                            let mut guard = state.tts_enabled.lock().unwrap();
+                            *guard = tts_enabled_val;
+                        }
+
                         let mut child_guard = state.python_child.lock().unwrap();
                         *child_guard = Some(child);
                         if let Some(ref mut c) = *child_guard {
                             let msg = if protect_enabled { b"protect:1\n" as &[u8] } else { b"protect:0\n" };
                             let _ = c.write(msg);
+                            let msg = if tts_enabled_val { b"tts:1\n" as &[u8] } else { b"tts:0\n" };
+                            let _ = c.write(msg);
+                            let voice_msg = format!("tts_voice:{}\n", tts_voice_val);
+                            let _ = c.write(voice_msg.as_bytes());
                         }
                     }
 
@@ -756,6 +811,34 @@ pub fn run() {
                                                     let _ = window.hide();
                                                 }
                                             }
+                                            Some("tts_audio") => {
+                                                if let Some(b64_data) = json["data"].as_str() {
+                                                    if let Ok(mp3_bytes) = base64::engine::general_purpose::STANDARD.decode(b64_data) {
+                                                        let handle = stt_app_handle.state::<AppState>();
+                                                        let audio_handle_guard = handle.audio_handle.lock().unwrap();
+                                                        let cursor = std::io::Cursor::new(mp3_bytes);
+                                                        if let Ok(source) = Decoder::new(cursor) {
+                                                            if let Ok(sink) = Sink::try_new(&*audio_handle_guard) {
+                                                                sink.append(source);
+                                                                let mut tts_guard = handle.tts_sink.lock().unwrap();
+                                                                *tts_guard = Some(sink);
+                                                                drop(tts_guard);
+                                                                drop(audio_handle_guard);
+
+                                                                let h = stt_app_handle.clone();
+                                                                tauri::async_runtime::spawn(async move {
+                                                                    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+                                                                    let state_lock = h.state::<AppState>();
+                                                                    let mut tts_guard = state_lock.tts_sink.lock().unwrap();
+                                                                    if let Some(sink) = tts_guard.take() {
+                                                                        sink.stop();
+                                                                    }
+                                                                });
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                             _ => {}
                                         }
                                     }
@@ -788,6 +871,9 @@ pub fn run() {
             register_shortcut, 
             set_audio_feedback, 
             set_sensitive_protection,
+            set_tts_enabled,
+            set_tts_voice,
+            preview_voice,
             get_app_version,
             check_for_update,
             install_update

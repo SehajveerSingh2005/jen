@@ -4,7 +4,7 @@ import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { load } from "@tauri-apps/plugin-store";
-import { Settings as SettingsIcon, Bell, Rocket, X, Keyboard, RotateCcw, Shield, RefreshCw, ArrowUpCircle } from "lucide-react";
+import { Settings as SettingsIcon, Bell, Rocket, X, Keyboard, RotateCcw, Shield, RefreshCw, ArrowUpCircle, Volume2, Play } from "lucide-react";
 import "./index.css";
 
 
@@ -14,6 +14,8 @@ function SettingsApp() {
   const [autostart, setAutostart] = useState(false);
   const [audioCues, setAudioCues] = useState(true);
   const [sensitiveProtection, setSensitiveProtection] = useState(true);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [ttsVoice, setTtsVoice] = useState("en-US-JennyNeural");
   const [hotkey, setHotkey] = useState("Ctrl+Shift+R");
   const [isRecording, setIsRecording] = useState(false);
   const [appVersion, setAppVersion] = useState("0.1.0");
@@ -39,6 +41,12 @@ function SettingsApp() {
 
         const savedProtection = await store.get<boolean>("sensitive_protection");
         setSensitiveProtection(typeof savedProtection === "boolean" ? savedProtection : true);
+
+        const savedTts = await store.get<boolean>("tts_enabled");
+        setTtsEnabled(typeof savedTts === "boolean" ? savedTts : true);
+
+        const savedVoice = await store.get<string>("tts_voice");
+        if (savedVoice) setTtsVoice(savedVoice);
 
         const ver = await invoke<string>("get_app_version");
         setAppVersion(ver);
@@ -82,6 +90,28 @@ function SettingsApp() {
       await invoke("set_sensitive_protection", { enabled: val });
     } catch (e) {
       console.error("Failed to update sensitive protection:", e);
+    }
+  };
+
+  const updateTtsEnabled = async (val: boolean) => {
+    try {
+      setTtsEnabled(val);
+      const store = await load("settings.json");
+      await store.set("tts_enabled", val);
+      await invoke("set_tts_enabled", { enabled: val });
+    } catch (e) {
+      console.error("Failed to update TTS setting:", e);
+    }
+  };
+
+  const updateTtsVoice = async (val: string) => {
+    try {
+      setTtsVoice(val);
+      const store = await load("settings.json");
+      await store.set("tts_voice", val);
+      await invoke("set_tts_voice", { voice: val });
+    } catch (e) {
+      console.error("Failed to update TTS voice:", e);
     }
   };
 
@@ -306,6 +336,69 @@ function SettingsApp() {
                   <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${sensitiveProtection ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
+            </div>
+          </section>
+
+          {/* Voice Section */}
+          <section className="space-y-3">
+            <h2 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">Voice</h2>
+            <div className="bg-slate-900/40 border border-white/5 rounded-2xl p-4 space-y-4 backdrop-blur-sm">
+              {/* TTS Toggle */}
+              <div className="flex items-center justify-between group">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center border border-white/5 transition-colors group-hover:border-sky-500/30">
+                    <Volume2 className="w-4 h-4 text-slate-400 group-hover:text-sky-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-slate-200">Voice Responses</p>
+                    <p className="text-[11px] text-slate-500 leading-none mt-1">Jen speaks responses aloud</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => updateTtsEnabled(!ttsEnabled)}
+                  className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none ${ttsEnabled ? 'bg-sky-500' : 'bg-slate-700'}`}
+                >
+                  <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${ttsEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
+              {/* Voice Selector */}
+              {ttsEnabled && (
+                <div className="flex items-center justify-between group">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center border border-white/5 transition-colors group-hover:border-sky-500/30">
+                      <span className="text-xs">🎤</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-200">Voice</p>
+                      <p className="text-[11px] text-slate-500 leading-none mt-1">Choose Jen's voice</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={ttsVoice}
+                      onChange={(e) => updateTtsVoice(e.target.value)}
+                      className="px-3 py-1 rounded-lg border border-white/5 bg-slate-800 text-[11px] text-sky-400 hover:border-sky-500/50 transition-colors cursor-pointer appearance-none pr-6 outline-none"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}
+                    >
+                      <option value="en-US-JennyNeural">Jenny (US, Female)</option>
+                      <option value="en-US-AriaNeural">Aria (US, Female)</option>
+                      <option value="en-US-GuyNeural">Guy (US, Male)</option>
+                      <option value="en-GB-SoniaNeural">Sonia (UK, Female)</option>
+                      <option value="en-GB-RyanNeural">Ryan (UK, Male)</option>
+                      <option value="en-AU-NatashaNeural">Natasha (AU, Female)</option>
+                      <option value="en-IN-NeerjaNeural">Neerja (IN, Female)</option>
+                    </select>
+                    <button
+                      onClick={() => invoke("preview_voice", { voice: ttsVoice })}
+                      className="p-1.5 rounded-lg bg-slate-800 border border-white/5 text-slate-400 hover:text-sky-400 hover:border-sky-500/30 transition-colors cursor-pointer"
+                      title="Preview voice"
+                    >
+                      <Play className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 
