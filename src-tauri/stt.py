@@ -26,6 +26,12 @@ try:
 except ImportError:
     TTS_AVAILABLE = False
 
+try:
+    from ai_model import local_engine, cloud_engine
+    AI_AVAILABLE = True
+except ImportError:
+    AI_AVAILABLE = False
+
 # Disable TQDM progress bars
 os.environ["TQDM_DISABLE"] = "1"
 
@@ -37,6 +43,7 @@ trigger_manual = False
 protect_sensitive = True  # Default: on; controlled via stdin from Rust
 tts_enabled = True  # Default: on; controlled via stdin from Rust
 tts_voice = "en-US-JennyNeural"  # Default voice; controlled via stdin from Rust
+ai_mode = "off"  # off | local | cloud; controlled via stdin from Rust
 
 def log_debug(msg):
     try:
@@ -46,7 +53,7 @@ def log_debug(msg):
         pass
 
 def listen_stdin():
-    global trigger_manual, protect_sensitive, tts_enabled, tts_voice
+    global trigger_manual, protect_sensitive, tts_enabled, tts_voice, ai_mode
     while True:
         try:
             line = sys.stdin.readline()
@@ -76,6 +83,21 @@ def listen_stdin():
                         except Exception as e:
                             log_debug(f"Preview TTS error: {e}")
                     threading.Thread(target=_preview, daemon=True).start()
+            elif cmd.startswith("ai_mode:"):
+                ai_mode = cmd.split(":", 1)[1].strip() or "off"
+                log_debug(f"AI mode set to: {ai_mode}")
+            elif cmd.startswith("ai_local_model:"):
+                model_path = cmd.split(":", 1)[1].strip()
+                if AI_AVAILABLE and model_path:
+                    local_engine.configure(model_path)
+                    local_engine.preload()
+                    log_debug(f"Local AI model path set to: {model_path}")
+            elif cmd.startswith("ai_cloud:"):
+                # Format: ai_cloud:<api_key>:<base_url>:<model>
+                parts = cmd.split(":", 2)
+                if len(parts) >= 4 and AI_AVAILABLE:
+                    cloud_engine.configure(parts[1], parts[2], parts[3])
+                    log_debug(f"Cloud AI configured: {parts[2]} / {parts[3]}")
         except:
             os._exit(0)
 
@@ -137,6 +159,11 @@ INTENTS = {
         "type {text}", "type out {text}", "dictate {text}", "write {text}",
         "type text {text}", "type this {text}"
     ],
+    "weather": [
+        "what's the weather", "what is the weather", "how's the weather", "how is the weather",
+        "weather today", "weather outside", "is it raining", "is it sunny",
+        "temperature outside", "what's the temperature"
+    ],
     "button_press": [
         "press enter", "hit enter", "enter key", "press space", "hit space", "spacebar", "press spacebar",
         "press tab", "hit tab", "press escape", "hit escape", "press esc", "escape key",
@@ -170,6 +197,66 @@ def send_tts_async(text):
         except Exception as e:
             log_debug(f"TTS async error: {e}")
     threading.Thread(target=_worker, daemon=True).start()
+
+_weather_cache = {"lat": None, "lon": None, "city": None}
+
+def _handle_weather(params):
+    """Fetch weather from Open-Meteo and speak it."""
+    def _fetch():
+        try:
+            import urllib.request
+
+            # Use cached location or fetch new one
+            if _weather_cache["lat"] is None:
+                loc_resp = urllib.request.urlopen("http://ip-api.com/json/?fields=lat,lon,city", timeout=5)
+                loc = json.loads(loc_resp.read())
+                _weather_cache["lat"] = loc["lat"]
+                _weather_cache["lon"] = loc["lon"]
+                _weather_cache["city"] = loc.get("city", "your area")
+
+            lat, lon, city = _weather_cache["lat"], _weather_cache["lon"], _weather_cache["city"]
+
+            # Fetch weather with retry
+            url = (
+                f"https://api.open-meteo.com/v1/forecast?"
+                f"latitude={lat}&longitude={lon}"
+                f"&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m"
+                f"&temperature_unit=celsius"
+                f"&windspeed_unit=kmh"
+            )
+            w_data = None
+            for attempt in range(3):
+                try:
+                    w_resp = urllib.request.urlopen(url, timeout=5)
+                    w_data = json.loads(w_resp.read())["current"]
+                    break
+                except Exception as e:
+                    log_debug(f"Weather attempt {attempt+1} failed: {e}")
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.5)
+
+            temp = round(w_data["temperature_2m"])
+            humidity = w_data["relative_humidity_2m"]
+            wind = round(w_data["wind_speed_10m"])
+            code = w_data["weather_code"]
+
+            WMO = {
+                0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
+                45: "foggy", 48: "rime fog", 51: "light drizzle", 53: "drizzle",
+                55: "heavy drizzle", 61: "light rain", 63: "rain", 65: "heavy rain",
+                71: "light snow", 73: "snow", 75: "heavy snow", 80: "light showers",
+                81: "showers", 82: "heavy showers", 95: "thunderstorm",
+            }
+            condition = WMO.get(code, "unknown")
+
+            msg = f"In {city}, it's {temp} degrees Celsius and {condition}. Humidity is {humidity} percent with wind at {wind} kilometers per hour."
+            log_debug(f"Weather: {msg}")
+            send_tts(msg)
+        except Exception as e:
+            log_debug(f"Weather fetch error: {e}")
+            send_tts("Sorry, I couldn't get the weather right now.")
+    threading.Thread(target=_fetch, daemon=True).start()
 
 def execute_automation(intent_data):
     try:
@@ -239,6 +326,8 @@ def execute_automation(intent_data):
             if query:
                 import webbrowser
                 webbrowser.open(f"https://www.google.com/search?q={query}")
+        elif intent == "weather":
+            _handle_weather(params)
         elif intent == "play_music":
             song = params.get("song", "")
             if song:
@@ -420,48 +509,199 @@ def execute_automation(intent_data):
 
 def parse_intent(text):
     text = text.lower().strip()
+    params = {"raw_text": text}
+
+    # --- Keyword-based matching (deterministic, fast) ---
+    # Commands with arguments
+    for prefix, intent in [
+        ("open ", "open_app"), ("launch ", "open_app"), ("start ", "open_app"), ("run ", "open_app"),
+        ("search ", "google_search"), ("google ", "google_search"), ("look up ", "google_search"),
+        ("play ", "play_music"),
+        ("type ", "dictation"), ("dictate ", "dictation"), ("write ", "dictation"),
+        ("press ", "button_press"), ("hit ", "button_press"),
+    ]:
+        if text.startswith(prefix):
+            arg = text[len(prefix):].strip()
+            if intent == "open_app":
+                params["app"] = arg
+            elif intent == "google_search":
+                params["query"] = arg
+            elif intent == "play_music":
+                params["song"] = arg
+            elif intent == "dictation":
+                params["text"] = arg
+            elif intent == "button_press":
+                params["key"] = arg
+            return {"intent": intent, "params": params, "score": 100}
+
+    # Weather (exact phrase match, not partial)
+    WEATHER_KEYWORDS = [
+        "what's the weather", "what is the weather", "how's the weather", "how is the weather",
+        "whats the weather", "weather report", "weather today", "weather outside",
+        "is it raining", "is it sunny", "is it snowing",
+        "temperature outside", "what's the temperature", "what is the temperature",
+    ]
+    for kw in WEATHER_KEYWORDS:
+        if kw in text:
+            return {"intent": "weather", "params": {"query": text, "raw_text": text}, "score": 100}
+
+    # Single-word commands (require exact word match, not substring)
+    EXACT_WORDS = {
+        "mute": ("volume_control", {"action": "mute"}),
+        "unmute": ("volume_control", {"action": "unmute"}),
+        "screenshot": ("screenshot", {}),
+        "copy": ("clipboard", {}),
+        "paste": ("clipboard", {}),
+        "cut": ("clipboard", {}),
+        "undo": ("keyboard_shortcut", {"shortcut": "undo"}),
+        "redo": ("keyboard_shortcut", {"shortcut": "redo"}),
+        "refresh": ("keyboard_shortcut", {"shortcut": "refresh"}),
+        "reload": ("keyboard_shortcut", {"shortcut": "reload"}),
+        "find": ("keyboard_shortcut", {"shortcut": "find"}),
+    }
+    words = text.split()
+    if len(words) == 1 and words[0] in EXACT_WORDS:
+        intent, p = EXACT_WORDS[words[0]]
+        return {"intent": intent, "params": {**p, "raw_text": text}, "score": 100}
+
+    # Multi-word commands (fuzzy match against known phrases)
+    PHRASE_INTENTS = {
+        "volume up": ("volume_control", {"action": "up"}),
+        "volume down": ("volume_control", {"action": "down"}),
+        "increase volume": ("volume_control", {"action": "up"}),
+        "decrease volume": ("volume_control", {"action": "down"}),
+        "pause": ("media_control", {"action": "pause"}),
+        "resume": ("media_control", {"action": "play"}),
+        "next": ("media_control", {"action": "next"}),
+        "skip": ("media_control", {"action": "next"}),
+        "previous": ("media_control", {"action": "prev"}),
+        "back": ("media_control", {"action": "prev"}),
+        "stop music": ("media_control", {"action": "pause"}),
+        "play music": ("media_control", {"action": "play"}),
+        "take a screenshot": ("screenshot", {}),
+        "take screenshot": ("screenshot", {}),
+        "close window": ("window_control", {"action": "close"}),
+        "minimize window": ("window_control", {"action": "minimize"}),
+        "maximize window": ("window_control", {"action": "maximize"}),
+        "minimise window": ("window_control", {"action": "minimize"}),
+        "maximise window": ("window_control", {"action": "maximize"}),
+        "select all": ("keyboard_shortcut", {"shortcut": "select_all"}),
+        "save file": ("keyboard_shortcut", {"shortcut": "save"}),
+        "new tab": ("keyboard_shortcut", {"shortcut": "new_tab"}),
+        "close tab": ("keyboard_shortcut", {"shortcut": "close_tab"}),
+        "show desktop": ("keyboard_shortcut", {"shortcut": "show_desktop"}),
+        "open settings": ("keyboard_shortcut", {"shortcut": "open_settings"}),
+        "task manager": ("keyboard_shortcut", {"shortcut": "task_manager"}),
+        "lock screen": ("power_control", {"action": "lock"}),
+        "shut down": ("power_control", {"action": "shutdown"}),
+        "turn off": ("power_control", {"action": "shutdown"}),
+    }
+    best_score = 0
+    best_intent = None
+    best_params = None
+    for phrase, (intent, p) in PHRASE_INTENTS.items():
+        score = fuzz.ratio(text, phrase)
+        if score > best_score:
+            best_score = score
+            best_intent = intent
+            best_params = p
+    if best_score >= 80:
+        return {"intent": best_intent, "params": {**best_params, "raw_text": text}, "score": best_score}
+
+    # Window control with app name: "focus chrome", "close notepad", "switch to spotify"
+    WIN_ACTIONS = {
+        "focus": "focus", "switch to": "focus", "open window": "focus",
+        "minimize": "minimize", "minimise": "minimize",
+        "maximize": "maximize", "maximise": "maximize",
+        "close": "close", "exit": "close", "quit": "close",
+    }
+    for trigger, action in WIN_ACTIONS.items():
+        rest = text
+        if text.startswith(trigger):
+            rest = text[len(trigger):].strip()
+        elif f"{trigger} " in text:
+            rest = text.split(trigger, 1)[1].strip()
+        else:
+            continue
+        # Filter out generic words that aren't app names
+        if rest and rest not in ("window", "this", "that", "the", "it", "app", "application", "program"):
+            return {"intent": "window_control", "params": {"action": action, "app": rest, "raw_text": text}, "score": 90}
+
+    # Fallback: try fuzzy match against all INTENTS patterns (with higher threshold)
     best_match, highest_score, detected_intent = None, 0, None
     for intent, patterns in INTENTS.items():
         for pattern in patterns:
             clean_pattern = re.sub(r"\{.*?\}", "", pattern).strip()
-            score = fuzz.partial_ratio(text, clean_pattern)
+            # Use ratio (full string match) instead of partial_ratio
+            score = fuzz.ratio(text, clean_pattern)
             if score > highest_score:
                 highest_score, detected_intent, best_match = score, intent, pattern
-    params = {"raw_text": text}
-    if detected_intent == "open_app":
-        for p in INTENTS["open_app"]:
-            m = re.search(p.replace("{app}", "(.*)"), text)
-            if m: params["app"] = m.group(1).strip(); break
-    elif detected_intent == "window_control":
-        for p in INTENTS["window_control"]:
-            if "{app}" in p:
-                regex = p.replace("{app}", "(.*)")
-                for verb in ["focus window", "focus", "switch to", "minimize", "minimise", "maximize", "maximise", "close"]:
-                    if regex.startswith(verb): regex = regex[len(verb):].strip(); break
-                m = re.search(regex, text)
-                if m:
-                    ex = m.group(1).strip()
-                    if ex != "window": params["app"] = ex; break
-    elif detected_intent == "google_search":
-        for p in INTENTS["google_search"]:
-            m = re.search(p.replace("{query}", "(.*)"), text)
-            if m: params["query"] = m.group(1).strip(); break
-    elif detected_intent == "play_music":
-        for p in INTENTS["play_music"]:
-            m = re.search(p.replace("{song}", "(.*)"), text)
-            if m: params["song"] = m.group(1).strip(); break
-    elif detected_intent == "dictation":
-        for p in INTENTS["dictation"]:
-            if "{text}" in p:
-                m = re.search(p.replace("{text}", "(.*)"), text)
-                if m: params["text"] = m.group(1).strip(); break
-    elif detected_intent == "button_press":
-        for p in INTENTS["button_press"]:
-            if "{key}" in p:
-                m = re.search(p.replace("{key}", "(.*)"), text)
-                if m: params["key"] = m.group(1).strip(); break
-    if highest_score > 70:
+    if highest_score >= 85:
+        # Extract parameters from matched pattern
+        if detected_intent == "google_search":
+            for p in INTENTS["google_search"]:
+                m = re.search(p.replace("{query}", "(.*)"), text)
+                if m: params["query"] = m.group(1).strip(); break
+        elif detected_intent == "play_music":
+            for p in INTENTS["play_music"]:
+                m = re.search(p.replace("{song}", "(.*)"), text)
+                if m: params["song"] = m.group(1).strip(); break
+        elif detected_intent == "dictation":
+            for p in INTENTS["dictation"]:
+                if "{text}" in p:
+                    m = re.search(p.replace("{text}", "(.*)"), text)
+                    if m: params["text"] = m.group(1).strip(); break
         return {"intent": detected_intent, "params": params, "score": highest_score}
+
+    # No command matched — try AI if enabled
+    if ai_mode != "off" and AI_AVAILABLE:
+        engine = local_engine if ai_mode == "local" else cloud_engine
+        ai_result = engine.process(text)
+        log_debug(f"AI result: {ai_result}")
+
+        if ai_result.get("type") == "tool_call":
+            return _map_tool_to_intent(ai_result, text)
+        elif ai_result.get("type") == "response":
+            return {
+                "intent": "ai_response",
+                "params": {"text": ai_result["text"], "raw_text": text},
+                "score": 100,
+            }
+
+    return None
+
+
+def _map_tool_to_intent(ai_result, raw_text):
+    """Map an LLM tool call to the existing intent format."""
+    func = ai_result["function"]
+    args = ai_result.get("args", {})
+
+    if func == "open_app":
+        return {"intent": "open_app", "params": {"app": args.get("app", ""), "raw_text": raw_text}, "score": 100}
+    elif func == "google_search":
+        return {"intent": "google_search", "params": {"query": args.get("query", ""), "raw_text": raw_text}, "score": 100}
+    elif func == "play_music":
+        return {"intent": "play_music", "params": {"song": args.get("song", ""), "raw_text": raw_text}, "score": 100}
+    elif func == "volume_control":
+        return {"intent": "volume_control", "params": {"raw_text": args.get("action", "up")}, "score": 100}
+    elif func == "media_control":
+        return {"intent": "media_control", "params": {"raw_text": args.get("action", "play")}, "score": 100}
+    elif func == "window_control":
+        action = args.get("action", "focus")
+        app = args.get("app", "")
+        return {"intent": "window_control", "params": {"raw_text": f"{action} {app}".strip()}, "score": 100}
+    elif func == "brightness_control":
+        direction = args.get("action", "up")
+        return {"intent": "brightness_control", "params": {"raw_text": f"brightness {direction}"}, "score": 100}
+    elif func == "screenshot":
+        return {"intent": "screenshot", "params": {"raw_text": "screenshot"}, "score": 100}
+    elif func == "dictate":
+        return {"intent": "dictation", "params": {"text": args.get("text", ""), "raw_text": raw_text}, "score": 100}
+    elif func == "keyboard_shortcut":
+        return {"intent": "keyboard_shortcut", "params": {"shortcut_name": args.get("shortcut", ""), "raw_text": raw_text}, "score": 100}
+    elif func == "weather":
+        return {"intent": "weather", "params": {"query": args.get("query", "today"), "raw_text": raw_text}, "score": 100}
+
     return None
 
 def get_resource_path(relative_path):
@@ -583,34 +823,34 @@ def listen_and_transcribe():
 
             if detected:
                 try:
-                    # Send a greeting before recording
-                    greeting = random.choice(GREETINGS)
-                    send_tts(greeting)
-                    time.sleep(0.6)  # Brief pause to let greeting start playing
-
                     with sr.Microphone(sample_rate=16000) as source:
                         try:
                             print(json.dumps({"status": "recording"}), flush=True)
-                            r.adjust_for_ambient_noise(source, duration=0.2)
-                            audio_clip = r.listen(source, timeout=7, phrase_time_limit=10)
+                            r.adjust_for_ambient_noise(source, duration=0.3)
+                            r.pause_threshold = 1.5
+                            r.energy_threshold = 300
+                            audio_clip = r.listen(source, timeout=7, phrase_time_limit=20)
                             print(json.dumps({"status": "transcribing"}), flush=True)
                             text = r.recognize_google(audio_clip)
                             res = parse_intent(text)
                             if res:
+                                intent_name = res.get("intent", "")
                                 execute_automation(res)
-                                # Speak a response for non-automation intents
-                                if res.get("intent") == "ai_response":
+                                # Speak a response
+                                if intent_name == "ai_response":
                                     response_text = res.get("params", {}).get("text", "")
                                     if response_text:
-                                        send_tts(response_text)
-                                else:
-                                    send_tts("Done!")
+                                        send_tts_async(response_text)
+                                elif intent_name != "weather":
+                                    send_tts_async("Done!")
+                            else:
+                                send_tts_async("I didn't catch that. Try again.")
                             print(json.dumps({"status": "success", "text": text}), flush=True)
                         except sr.UnknownValueError:
-                            send_tts("Sorry, I didn't catch that.")
+                            send_tts_async("Sorry, I didn't catch that.")
                             print(json.dumps({"status": "error", "message": "unknown"}), flush=True)
                         except Exception as e:
-                            send_tts("Something went wrong.")
+                            send_tts_async("Something went wrong.")
                             print(json.dumps({"status": "error", "message": str(e)}), flush=True)
                             if audio:
                                 try: audio.terminate()

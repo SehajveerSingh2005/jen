@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
@@ -32,6 +33,7 @@ pub enum OrbState {
     Processing,
     Success,
     Error,
+    Speaking,
 }
 
 struct SendSyncWrapper<T>(T);
@@ -129,6 +131,84 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Deserialize)]
+struct DownloadRequest {
+    url: String,
+    path: String,
+}
+
+#[tauri::command]
+async fn download_file(app: tauri::AppHandle, request: DownloadRequest) -> Result<String, String> {
+    use futures_util::StreamExt;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get(&request.url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+
+    let total_size = response.content_length().unwrap_or(0);
+    let mut stream = response.bytes_stream();
+
+    // Create parent directory if needed
+    if let Some(parent) = std::path::Path::new(&request.path).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let mut file = std::fs::File::create(&request.path).map_err(|e| e.to_string())?;
+    let mut downloaded: u64 = 0;
+    let mut last_pct = 0u32;
+
+    let result = async {
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| e.to_string())?;
+            std::io::Write::write_all(&mut file, &chunk).map_err(|e| e.to_string())?;
+            downloaded += chunk.len() as u64;
+
+            if total_size > 0 {
+                let pct = ((downloaded as f64 / total_size as f64) * 100.0) as u32;
+                if pct != last_pct {
+                    last_pct = pct;
+                    let _ = app.emit("download-progress", serde_json::json!({
+                        "path": &request.path,
+                        "progress": pct,
+                        "downloaded": downloaded,
+                        "total": total_size,
+                    }));
+                }
+            }
+        }
+        Ok::<(), String>(())
+    }.await;
+
+    if result.is_err() {
+        // Clean up partial file on error
+        let _ = std::fs::remove_file(&request.path);
+        return result.map(|_| request.path);
+    }
+
+    Ok(request.path)
+}
+
+#[tauri::command]
+fn file_exists(path: String) -> bool {
+    std::path::Path::new(&path).exists()
+}
+
+#[tauri::command]
+fn delete_file(path: String) -> Result<(), String> {
+    std::fs::remove_file(&path).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn set_audio_feedback(state: tauri::State<'_, AppState>, enabled: bool) {
     let mut guard = state.audio_feedback.lock().unwrap();
@@ -169,6 +249,38 @@ fn set_tts_voice(state: tauri::State<'_, AppState>, voice: String) {
 #[tauri::command]
 fn preview_voice(state: tauri::State<'_, AppState>, voice: String) {
     let msg = format!("preview_voice:{}\n", voice);
+    let mut child_guard = state.python_child.lock().unwrap();
+    if let Some(child) = child_guard.as_mut() {
+        let _ = child.write(msg.as_bytes());
+    }
+}
+
+#[tauri::command]
+fn set_ai_mode(state: tauri::State<'_, AppState>, mode: String) {
+    let msg = format!("ai_mode:{}\n", mode);
+    let mut child_guard = state.python_child.lock().unwrap();
+    if let Some(child) = child_guard.as_mut() {
+        let _ = child.write(msg.as_bytes());
+    }
+}
+
+#[tauri::command]
+fn set_ai_local_model(state: tauri::State<'_, AppState>, model_path: String) {
+    let msg = format!("ai_local_model:{}\n", model_path);
+    let mut child_guard = state.python_child.lock().unwrap();
+    if let Some(child) = child_guard.as_mut() {
+        let _ = child.write(msg.as_bytes());
+    }
+}
+
+#[tauri::command]
+fn set_ai_cloud(
+    state: tauri::State<'_, AppState>,
+    api_key: String,
+    base_url: String,
+    model: String,
+) {
+    let msg = format!("ai_cloud:{}:{}:{}\n", api_key, base_url, model);
     let mut child_guard = state.python_child.lock().unwrap();
     if let Some(child) = child_guard.as_mut() {
         let _ = child.write(msg.as_bytes());
@@ -286,6 +398,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             state: Mutex::new(OrbState::Idle),
             python_child: Mutex::new(None),
@@ -631,6 +744,40 @@ pub fn run() {
                             let _ = c.write(msg);
                             let voice_msg = format!("tts_voice:{}\n", tts_voice_val);
                             let _ = c.write(voice_msg.as_bytes());
+
+                            // Sync AI settings
+                            let ai_mode_val = store.as_ref().ok()
+                                .and_then(|s| s.get("ai_mode"))
+                                .and_then(|v| v.as_str().map(String::from))
+                                .unwrap_or_else(|| "off".to_string());
+                            let ai_msg = format!("ai_mode:{}\n", ai_mode_val);
+                            let _ = c.write(ai_msg.as_bytes());
+
+                            let ai_model_path = store.as_ref().ok()
+                                .and_then(|s| s.get("ai_local_model"))
+                                .and_then(|v| v.as_str().map(String::from))
+                                .unwrap_or_default();
+                            if !ai_model_path.is_empty() {
+                                let msg = format!("ai_local_model:{}\n", ai_model_path);
+                                let _ = c.write(msg.as_bytes());
+                            }
+
+                            let ai_api_key = store.as_ref().ok()
+                                .and_then(|s| s.get("ai_cloud_api_key"))
+                                .and_then(|v| v.as_str().map(String::from))
+                                .unwrap_or_default();
+                            let ai_base_url = store.as_ref().ok()
+                                .and_then(|s| s.get("ai_cloud_base_url"))
+                                .and_then(|v| v.as_str().map(String::from))
+                                .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+                            let ai_model = store.as_ref().ok()
+                                .and_then(|s| s.get("ai_cloud_model"))
+                                .and_then(|v| v.as_str().map(String::from))
+                                .unwrap_or_else(|| "gpt-4o-mini".to_string());
+                            if !ai_api_key.is_empty() {
+                                let msg = format!("ai_cloud:{}:{}:{}\n", ai_api_key, ai_base_url, ai_model);
+                                let _ = c.write(msg.as_bytes());
+                            }
                         }
                     }
 
@@ -816,22 +963,49 @@ pub fn run() {
                                                     if let Ok(mp3_bytes) = base64::engine::general_purpose::STANDARD.decode(b64_data) {
                                                         let handle = stt_app_handle.state::<AppState>();
                                                         let audio_handle_guard = handle.audio_handle.lock().unwrap();
-                                                        let cursor = std::io::Cursor::new(mp3_bytes);
+                                                        let cursor = std::io::Cursor::new(mp3_bytes.clone());
                                                         if let Ok(source) = Decoder::new(cursor) {
                                                             if let Ok(sink) = Sink::try_new(&*audio_handle_guard) {
+                                                                // Calculate duration from MP3 size (~48kbps = 6000 bytes/sec)
+                                                                let duration_secs = (mp3_bytes.len() as f64 / 6000.0).ceil() as u64 + 1;
                                                                 sink.append(source);
                                                                 let mut tts_guard = handle.tts_sink.lock().unwrap();
                                                                 *tts_guard = Some(sink);
                                                                 drop(tts_guard);
                                                                 drop(audio_handle_guard);
 
+                                                                // Transition to Speaking state — keep window visible
+                                                                {
+                                                                    let state_lock = stt_app_handle.state::<AppState>();
+                                                                    let mut s = state_lock.state.lock().unwrap();
+                                                                    *s = OrbState::Speaking;
+                                                                }
+                                                                stt_app_handle.emit("orb-state-change", OrbState::Speaking).unwrap();
+
+                                                                // Show window if hidden
+                                                                if let Some(window) = stt_app_handle.get_webview_window("main") {
+                                                                    let hwnd = window.hwnd().unwrap();
+                                                                    unsafe {
+                                                                        let _ = ShowWindow(HWND(hwnd.0), SW_SHOWNA);
+                                                                    }
+                                                                }
+
                                                                 let h = stt_app_handle.clone();
                                                                 tauri::async_runtime::spawn(async move {
-                                                                    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+                                                                    tokio::time::sleep(std::time::Duration::from_secs(duration_secs)).await;
                                                                     let state_lock = h.state::<AppState>();
                                                                     let mut tts_guard = state_lock.tts_sink.lock().unwrap();
                                                                     if let Some(sink) = tts_guard.take() {
                                                                         sink.stop();
+                                                                    }
+                                                                    // Transition Speaking → Idle, hide window
+                                                                    let mut s = state_lock.state.lock().unwrap();
+                                                                    if matches!(*s, OrbState::Speaking) {
+                                                                        *s = OrbState::Idle;
+                                                                        h.emit("orb-state-change", OrbState::Idle).unwrap();
+                                                                        if let Some(window) = h.get_webview_window("main") {
+                                                                            let _ = window.hide();
+                                                                        }
                                                                     }
                                                                 });
                                                             }
@@ -874,6 +1048,12 @@ pub fn run() {
             set_tts_enabled,
             set_tts_voice,
             preview_voice,
+            set_ai_mode,
+            set_ai_local_model,
+            set_ai_cloud,
+            download_file,
+            file_exists,
+            delete_file,
             get_app_version,
             check_for_update,
             install_update

@@ -23,5 +23,9 @@ screen-brightness-control
 # Text-to-Speech
 edge-tts
 
+# AI / LLM
+llama-cpp-python>=0.3.0
+httpx
+
 # Build tooling
 pyinstaller

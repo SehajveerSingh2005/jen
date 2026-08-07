@@ -3,7 +3,7 @@ import { Orb, AgentState } from "./components/Orb";
 import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
 
-type AppOrbState = "idle" | "startup" | "listening" | "processing" | "success" | "error" | "recording";
+type AppOrbState = "idle" | "startup" | "listening" | "processing" | "success" | "error" | "recording" | "speaking";
 
 function App() {
   const [state, setState] = useState<AppOrbState>("idle");
@@ -55,6 +55,11 @@ function App() {
         return { 
           agentState: "talking" as AgentState, 
           colors: ["#ecfdf5", "#10b981"] as [string, string] // Metallic Mint
+        };
+      case "speaking":
+        return { 
+          agentState: "talking" as AgentState, 
+          colors: ["#fefce8", "#eab308"] as [string, string] // Warm Gold
         };
       case "error":
         return { 

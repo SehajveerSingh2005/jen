@@ -29,6 +29,7 @@ def build():
     script_path = os.path.join(src_tauri_dir, "stt.py")
     hey_jen_model = os.path.join(src_tauri_dir, "hey_jen.onnx")
     tts_module = os.path.join(src_tauri_dir, "tts.py")
+    ai_module = os.path.join(src_tauri_dir, "ai_model.py")
 
     # Find openwakeword resources
     try:
@@ -88,6 +89,7 @@ def build():
         "--noconsole",
         f"--add-data={hey_jen_model};.",
         f"--add-data={tts_module};.",
+        f"--add-data={ai_module};.",
         f"--add-data={temp_models_dir};models",
         "--collect-all=openwakeword",
         "--hidden-import=openwakeword",
@@ -98,6 +100,9 @@ def build():
         "--hidden-import=wmi",
         "--hidden-import=edge_tts",
         "--hidden-import=tts",
+        "--hidden-import=ai_model",
+        "--hidden-import=llama_cpp",
+        "--hidden-import=httpx",
         "--name=stt",
         script_path
     ]
