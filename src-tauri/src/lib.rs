@@ -965,7 +965,7 @@ pub fn run() {
                                                         let audio_handle_guard = handle.audio_handle.lock().unwrap();
                                                         let cursor = std::io::Cursor::new(mp3_bytes.clone());
                                                         if let Ok(source) = Decoder::new(cursor) {
-                                                            if let Ok(sink) = Sink::try_new(&*audio_handle_guard) {
+                                                            if let Ok(sink) = Sink::try_new(&audio_handle_guard) {
                                                                 // Calculate duration from MP3 size (~48kbps = 6000 bytes/sec)
                                                                 let duration_secs = (mp3_bytes.len() as f64 / 6000.0).ceil() as u64 + 1;
                                                                 sink.append(source);
@@ -981,6 +981,16 @@ pub fn run() {
                                                                     *s = OrbState::Speaking;
                                                                 }
                                                                 stt_app_handle.emit("orb-state-change", OrbState::Speaking).unwrap();
+
+                                                                // Send word timings to frontend for text sync
+                                                                if let Some(words) = json.get("words") {
+                                                                    let text = json["text"].as_str().unwrap_or("");
+                                                                    let _ = stt_app_handle.emit("tts-words", serde_json::json!({
+                                                                        "text": text,
+                                                                        "words": words,
+                                                                        "duration": duration_secs,
+                                                                    }));
+                                                                }
 
                                                                 // Show window if hidden
                                                                 if let Some(window) = stt_app_handle.get_webview_window("main") {

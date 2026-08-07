@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import { load } from "@tauri-apps/plugin-store";
 import {
   Settings,
@@ -21,7 +22,6 @@ import {
   ChevronDown,
   Download,
   Check,
-  Loader2,
 } from "lucide-react";
 import "./index.css";
 
@@ -173,6 +173,7 @@ function SettingsApp() {
   const [audioCues, setAudioCues] = useState(true);
   const [sensitiveProtection, setSensitiveProtection] = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [transcriptionEnabled, setTranscriptionEnabled] = useState(true);
   const [ttsVoice, setTtsVoice] = useState("en-US-JennyNeural");
   const [aiMode, setAiMode] = useState<"off" | "local" | "cloud">("off");
   const [aiLocalModel, setAiLocalModel] = useState("");
@@ -206,6 +207,8 @@ function SettingsApp() {
         setSensitiveProtection(typeof savedProtection === "boolean" ? savedProtection : true);
         const savedTts = await store.get<boolean>("tts_enabled");
         setTtsEnabled(typeof savedTts === "boolean" ? savedTts : true);
+        const savedTranscription = await store.get<boolean>("transcription_enabled");
+        setTranscriptionEnabled(typeof savedTranscription === "boolean" ? savedTranscription : true);
         const savedVoice = await store.get<string>("tts_voice");
         if (savedVoice) setTtsVoice(savedVoice);
         const savedAiMode = await store.get<string>("ai_mode");
@@ -475,6 +478,9 @@ function SettingsApp() {
                   </div>
                 </div>
               )}
+              <Row icon={<Volume2 className="w-[15px] h-[15px]" />} label="Live Transcription" description="Show words as Jen speaks">
+                <Toggle checked={transcriptionEnabled} onChange={(v) => { setTranscriptionEnabled(v); updateSetting("transcription_enabled", v); emit("transcription-changed", v); }} />
+              </Row>
             </div>
           )}
 

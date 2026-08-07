@@ -77,7 +77,7 @@ def listen_stdin():
                 if preview_voice and TTS_AVAILABLE:
                     def _preview():
                         try:
-                            data = generate_tts_audio("Hello! I'm Jen, your desktop assistant.", preview_voice)
+                            data, _ = generate_tts_audio("Hello! I'm Jen, your desktop assistant.", preview_voice)
                             if data:
                                 print(json.dumps({"status": "tts_audio", "data": data}), flush=True)
                         except Exception as e:
@@ -179,9 +179,9 @@ def send_tts(text):
     if not tts_enabled or not TTS_AVAILABLE:
         return
     try:
-        data = generate_tts_audio(text, tts_voice)
+        data, timings = generate_tts_audio(text, tts_voice)
         if data:
-            print(json.dumps({"status": "tts_audio", "data": data}), flush=True)
+            print(json.dumps({"status": "tts_audio", "data": data, "words": timings, "text": text}), flush=True)
     except Exception as e:
         log_debug(f"TTS error: {e}")
 
@@ -191,9 +191,9 @@ def send_tts_async(text):
         return
     def _worker():
         try:
-            data = generate_tts_audio(text, tts_voice)
+            data, timings = generate_tts_audio(text, tts_voice)
             if data:
-                print(json.dumps({"status": "tts_audio", "data": data}), flush=True)
+                print(json.dumps({"status": "tts_audio", "data": data, "words": timings, "text": text}), flush=True)
         except Exception as e:
             log_debug(f"TTS async error: {e}")
     threading.Thread(target=_worker, daemon=True).start()
