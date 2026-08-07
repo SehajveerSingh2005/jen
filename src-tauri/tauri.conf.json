@@ -28,7 +28,7 @@
       {
         "title": "Jen Settings",
         "label": "settings",
-        "width": 400,
+        "width": 520,
         "height": 500,
         "resizable": false,
         "decorations": false,

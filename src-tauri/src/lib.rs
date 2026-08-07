@@ -320,7 +320,7 @@ pub fn run() {
                                     tauri::WebviewUrl::App("settings.html".into()),
                                 )
                                 .title("Jen Settings")
-                                .inner_size(400.0, 500.0)
+                                .inner_size(520.0, 500.0)
                                 .resizable(false)
                                 .decorations(false)
                                 .build();
@@ -459,7 +459,7 @@ pub fn run() {
                                 tauri::WebviewUrl::App("settings.html".into()),
                             )
                             .title("Jen Settings")
-                            .inner_size(400.0, 500.0)
+                            .inner_size(520.0, 500.0)
                             .resizable(false)
                             .decorations(false)
                             .build();
