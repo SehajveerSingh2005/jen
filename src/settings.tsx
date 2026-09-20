@@ -11,6 +11,8 @@ import {
   Bell,
   Shield,
   Volume2,
+  Mic,
+  MessagesSquare,
   Keyboard,
   RotateCcw,
   RefreshCw,
@@ -40,30 +42,38 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 
 const MODELS = [
   {
-    id: "qwen2.5-0.5b",
-    name: "Qwen 2.5 0.5B",
-    size: "~400 MB",
-    desc: "Fastest, lowest RAM. Good for simple tasks.",
-    url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-    filename: "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    id: "qwen3-1.7b",
+    name: "Qwen 3 1.7B",
+    size: "~1.2 GB",
+    desc: "Lite. For low-RAM PCs; slower to pick the right tool.",
+    url: "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
+    filename: "Qwen3-1.7B-Q4_K_M.gguf",
+    recommended: false,
   },
   {
-    id: "qwen2.5-1.5b",
-    name: "Qwen 2.5 1.5B",
-    size: "~1.1 GB",
-    desc: "Best balance of speed and capability.",
-    url: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
-    filename: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+    id: "qwen3.5-4b",
+    name: "Qwen 3.5 4B",
+    size: "~2.7 GB",
+    desc: "Recommended. 100% tool accuracy in our tests, ~2s commands.",
+    url: "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
+    filename: "Qwen3.5-4B-Q4_K_M.gguf",
+    recommended: true,
   },
   {
-    id: "llama-3.2-1b",
-    name: "Llama 3.2 1B",
-    size: "~800 MB",
-    desc: "Meta's small model. Fast inference.",
-    url: "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-    filename: "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+    id: "qwen3-8b",
+    name: "Qwen 3 8B",
+    size: "~5 GB",
+    desc: "Pro. Best quality, needs 16 GB+ RAM and patience.",
+    url: "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf",
+    filename: "Qwen3-8B-Q4_K_M.gguf",
+    recommended: false,
   },
 ];
+
+const GPU_RUNTIME = {
+  url: "https://github.com/ggml-org/llama.cpp/releases/download/b11060/llama-b11060-bin-win-vulkan-x64.zip",
+  size: "~30 MB",
+};
 
 function Dropdown({
   value,
@@ -174,6 +184,8 @@ function SettingsApp() {
   const [sensitiveProtection, setSensitiveProtection] = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [transcriptionEnabled, setTranscriptionEnabled] = useState(true);
+  const [followupEnabled, setFollowupEnabled] = useState(false);
+  const [wakeSensitivity, setWakeSensitivity] = useState("medium");
   const [ttsVoice, setTtsVoice] = useState("en-US-JennyNeural");
   const [aiMode, setAiMode] = useState<"off" | "local" | "cloud">("off");
   const [aiLocalModel, setAiLocalModel] = useState("");
@@ -193,6 +205,14 @@ function SettingsApp() {
   const downloadAbortRef = useRef<AbortController | null>(null);
   const [modelDir, setModelDir] = useState<string>("");
   const [installedModels, setInstalledModels] = useState<Record<string, boolean>>({});
+  const [inputDevices, setInputDevices] = useState<{ index: number; name: string; host_api?: string }[]>([]);
+  const [outputDevices, setOutputDevices] = useState<string[]>([]);
+  const [inputDevice, setInputDevice] = useState("default");
+  const [outputDevice, setOutputDevice] = useState("default");
+  const [gpuInstalled, setGpuInstalled] = useState(false);
+  const [gpuEnabled, setGpuEnabled] = useState(false);
+  const [gpuBusy, setGpuBusy] = useState(false);
+  const [gpuProgress, setGpuProgress] = useState(0);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -209,6 +229,10 @@ function SettingsApp() {
         setTtsEnabled(typeof savedTts === "boolean" ? savedTts : true);
         const savedTranscription = await store.get<boolean>("transcription_enabled");
         setTranscriptionEnabled(typeof savedTranscription === "boolean" ? savedTranscription : true);
+        const savedFollowup = await store.get<boolean>("followup_enabled");
+        setFollowupEnabled(typeof savedFollowup === "boolean" ? savedFollowup : false);
+        const savedWake = await store.get<string>("wake_sensitivity");
+        if (savedWake === "low" || savedWake === "high") setWakeSensitivity(savedWake);
         const savedVoice = await store.get<string>("tts_voice");
         if (savedVoice) setTtsVoice(savedVoice);
         const savedAiMode = await store.get<string>("ai_mode");
@@ -231,11 +255,45 @@ function SettingsApp() {
           checks[m.id] = await invoke<boolean>("file_exists", { path: `${dir}\\${m.filename}` });
         }
         setInstalledModels(checks);
+        try {
+          const gpu = await invoke<{ installed: boolean; enabled: boolean }>("gpu_status");
+          setGpuInstalled(gpu.installed);
+          setGpuEnabled(gpu.enabled);
+        } catch (e) {
+          console.error("gpu_status failed:", e);
+        }
       } catch (e) {
         console.error("Failed to load settings:", e);
       }
     };
     loadSettings();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadDevices = async (attempt = 0) => {
+      try {
+        const dev = await invoke<{
+          inputs: { index: number; name: string; host_api?: string }[];
+          outputs: string[];
+          current_input: number | null;
+          current_output: string | null;
+        }>("list_audio_devices");
+        if (cancelled) return;
+        setInputDevices(dev.inputs ?? []);
+        setOutputDevices(dev.outputs ?? []);
+        setInputDevice(dev.current_input != null ? String(dev.current_input) : "default");
+        setOutputDevice(dev.current_output ?? "default");
+        // The sidecar enumerates input devices shortly after launch
+        if ((dev.inputs ?? []).length === 0 && attempt < 3) {
+          setTimeout(() => loadDevices(attempt + 1), 1500);
+        }
+      } catch (e) {
+        console.error("Failed to load audio devices:", e);
+      }
+    };
+    loadDevices();
+    return () => { cancelled = true; };
   }, []);
 
   const updateSetting = async (
@@ -338,6 +396,52 @@ function SettingsApp() {
     downloadAbortRef.current = null;
     setDownloadingModel(null);
     setDownloadProgress(0);
+  };
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<{ path: string; progress: number }>("download-progress", (event) => {
+        if (event.payload.path.includes("llama-vulkan")) {
+          setGpuProgress(event.payload.progress);
+        }
+      }).then((fn) => { unlisten = fn; });
+    });
+    return () => { unlisten?.(); };
+  }, []);
+
+  const handleInstallGpu = async () => {
+    if (gpuBusy) return;
+    setGpuBusy(true);
+    setGpuProgress(0);
+    try {
+      const { appDataDir } = await import("@tauri-apps/api/path");
+      const dir = await appDataDir();
+      const zip = `${dir}\\llama-vulkan.zip`;
+      await invoke("download_file", { request: { url: GPU_RUNTIME.url, path: zip } });
+      await invoke("install_gpu_runtime", { zipPath: zip });
+      await invoke("set_gpu_accel", { enabled: true });
+      setGpuInstalled(true);
+      setGpuEnabled(true);
+      setUpdateStatus("GPU acceleration enabled");
+    } catch (e) {
+      console.error("GPU setup failed:", e);
+      setUpdateStatus("GPU setup failed — check your connection");
+    } finally {
+      setGpuBusy(false);
+      setGpuProgress(0);
+      setTimeout(() => setUpdateStatus(null), 4000);
+    }
+  };
+
+  const handleToggleGpu = async (v: boolean) => {
+    setGpuEnabled(v);
+    try {
+      await invoke("set_gpu_accel", { enabled: v });
+    } catch (e) {
+      console.error("set_gpu_accel failed:", e);
+      setGpuEnabled(!v);
+    }
   };
 
   const handleDownloadModel = async (model: typeof MODELS[0]) => {
@@ -478,6 +582,49 @@ function SettingsApp() {
                   </div>
                 </div>
               )}
+              <Row icon={<Mic className="w-[15px] h-[15px]" />} label="Wake Word Sensitivity" description="How easily 'Hey Jen' triggers. Use High in noisy rooms or when speaking softly">
+                <Dropdown
+                  value={wakeSensitivity}
+                  options={[
+                    { value: "low", label: "Low" },
+                    { value: "medium", label: "Medium" },
+                    { value: "high", label: "High" },
+                  ]}
+                  onChange={(v) => { setWakeSensitivity(v); updateSetting("wake_sensitivity", v, "set_wake_sensitivity", { value: v }); }}
+                />
+              </Row>
+              <Row icon={<Mic className="w-[15px] h-[15px]" />} label="Microphone" description="Input device for the wake word and speech">
+                <Dropdown
+                  value={inputDevice}
+                  options={[
+                    { value: "default", label: "System Default" },
+                    ...inputDevices.map((d) => ({
+                      value: String(d.index),
+                      label: d.host_api ? `${d.name} (${d.host_api})` : d.name,
+                    })),
+                  ]}
+                  onChange={(v) => {
+                    setInputDevice(v);
+                    invoke("set_input_device", { index: v === "default" ? null : Number(v) });
+                  }}
+                />
+              </Row>
+              <Row icon={<Volume2 className="w-[15px] h-[15px]" />} label="Speaker" description="Output device for voice responses">
+                <Dropdown
+                  value={outputDevice}
+                  options={[
+                    { value: "default", label: "System Default" },
+                    ...outputDevices.map((name) => ({ value: name, label: name })),
+                  ]}
+                  onChange={(v) => {
+                    setOutputDevice(v);
+                    invoke("set_output_device", { name: v === "default" ? null : v });
+                  }}
+                />
+              </Row>
+              <Row icon={<MessagesSquare className="w-[15px] h-[15px]" />} label="Follow-Up Conversation" description="Keep listening for more commands after each reply">
+                <Toggle checked={followupEnabled} onChange={(v) => { setFollowupEnabled(v); updateSetting("followup_enabled", v, "set_followup_enabled", { enabled: v }); }} />
+              </Row>
               <Row icon={<Volume2 className="w-[15px] h-[15px]" />} label="Live Transcription" description="Show words as Jen speaks">
                 <Toggle checked={transcriptionEnabled} onChange={(v) => { setTranscriptionEnabled(v); updateSetting("transcription_enabled", v); emit("transcription-changed", v); }} />
               </Row>
@@ -537,6 +684,7 @@ function SettingsApp() {
                               <div className="min-w-0">
                                 <p className="text-[12px] text-white/70 font-medium flex items-center gap-1.5">
                                   {model.name}
+                                  {model.recommended && <span className="text-[9px] text-sky-400 bg-sky-500/15 px-1.5 py-0.5 rounded-full">Recommended</span>}
                                   {isActive && <span className="text-[9px] text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full">Active</span>}
                                 </p>
                                 <p className="text-[10px] text-white/30 mt-0.5">{model.size} — {model.desc}</p>
@@ -624,6 +772,35 @@ function SettingsApp() {
                       >
                         Browse
                       </button>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-white/[0.05] pt-3">
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 pr-3">
+                        <p className="text-[12px] text-white/70 font-medium">GPU Acceleration</p>
+                        <p className="text-[10px] text-white/30 mt-0.5">
+                          {gpuInstalled
+                            ? "Run the model on your GPU (Vulkan). Much faster commands."
+                            : `Run the model on your GPU (Vulkan). One-time ${GPU_RUNTIME.size} download.`}
+                        </p>
+                        {gpuBusy && (
+                          <div className="mt-2 h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                            <div className="h-full bg-sky-500 transition-all" style={{ width: `${gpuProgress}%` }} />
+                          </div>
+                        )}
+                      </div>
+                      {gpuInstalled ? (
+                        <Toggle checked={gpuEnabled} onChange={handleToggleGpu} />
+                      ) : (
+                        <button
+                          onClick={handleInstallGpu}
+                          disabled={gpuBusy}
+                          className="px-2.5 py-1 rounded-md bg-sky-500/15 border border-sky-500/20 text-[11px] text-sky-400 hover:bg-sky-500/25 transition-colors cursor-pointer whitespace-nowrap shrink-0 disabled:opacity-50"
+                        >
+                          {gpuBusy ? "Installing…" : "Enable"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -8,10 +8,11 @@ use tauri_plugin_shell::ShellExt;
 use tauri_plugin_store::StoreExt;
 
 use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongW, SetWindowLongW, ShowWindow, GWL_EXSTYLE, SW_SHOWNA, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW,
+    GetWindowLongW, GetWindowRect, SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE,
+    HWND_TOP, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SW_SHOWNA, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 use base64::Engine;
@@ -43,12 +44,241 @@ unsafe impl<T> Sync for SendSyncWrapper<T> {}
 struct AppState {
     pub state: Mutex<OrbState>,
     pub python_child: Mutex<Option<CommandChild>>,
+    pub llama_child: Mutex<Option<CommandChild>>,
     pub audio_handle: Mutex<OutputStreamHandle>,
     pub audio_feedback: Mutex<bool>,
     pub current_shortcut: Mutex<Option<Shortcut>>,
     pub _audio_stream: Mutex<SendSyncWrapper<OutputStream>>,
     pub tts_sink: Mutex<Option<Sink>>,
     pub tts_enabled: Mutex<bool>,
+    pub input_devices: Mutex<Vec<serde_json::Value>>,
+    pub custom_output_device: Mutex<Option<String>>,
+}
+
+const LLAMA_PORT: u16 = 58931;
+
+fn llama_base_url() -> String {
+    format!("http://127.0.0.1:{}/v1", LLAMA_PORT)
+}
+
+/// Optional GPU (Vulkan) llama-server build, installed on demand by the user.
+fn gpu_runtime_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("llama-vulkan"))
+}
+
+fn gpu_runtime_exe(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    let exe = gpu_runtime_dir(app)?.join("llama-server.exe");
+    exe.exists().then_some(exe)
+}
+
+fn gpu_accel_enabled(app: &tauri::AppHandle) -> bool {
+    app.store("settings.json")
+        .ok()
+        .and_then(|s| s.get("gpu_accel").and_then(|v| v.as_bool()))
+        .unwrap_or(false)
+}
+
+/// Spawn the bundled llama-server with the given GGUF model.
+/// Kills any previously running instance first (model switch / restart).
+fn spawn_llama_server(app: &tauri::AppHandle, model_path: &str) -> Result<(), String> {
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get().saturating_sub(2).max(2))
+        .unwrap_or(4);
+    let port = LLAMA_PORT.to_string();
+
+    // Kill stale llama-server processes left behind by a crashed or
+    // hot-reloaded run. They are not children of this process, so they would
+    // otherwise hold the port and waste memory (observed: 1.7 GB orphans).
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/IM", "llama-server.exe", "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+    }
+
+    // Prefer the GPU build when enabled and installed. Its exe lives next to
+    // its own DLLs in app data, so Windows resolves them from the exe dir.
+    let gpu_exe = if gpu_accel_enabled(app) {
+        let exe = gpu_runtime_exe(app);
+        if exe.is_none() {
+            eprintln!("gpu_accel is on but no GPU runtime found; using CPU build");
+        }
+        exe
+    } else {
+        None
+    };
+
+    let cmd = match &gpu_exe {
+        Some(exe) => app.shell().command(exe.to_string_lossy().to_string()),
+        None => {
+            // In dev mode, DLLs live in src-tauri/binaries/ but the sidecar exe
+            // runs from target/debug/. Append the binaries dir to PATH so
+            // Windows can locate them at load time.
+            let mut cpucmd = app
+                .shell()
+                .sidecar("llama-server")
+                .map_err(|e| e.to_string())?;
+            if let Ok(mut path) = std::env::var("PATH") {
+                if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR") {
+                    let binaries = std::path::Path::new(manifest_dir).join("binaries");
+                    path.push(';');
+                    path.push_str(binaries.to_string_lossy().as_ref());
+                }
+                cpucmd = cpucmd.env("PATH", path);
+            }
+            cpucmd
+        }
+    };
+
+    let mut args: Vec<String> = vec![
+        "--model".into(), model_path.into(),
+        "--alias".into(), "jen-local".into(),
+        "--host".into(), "127.0.0.1".into(),
+        "--port".into(), port,
+        "--ctx-size".into(), "4096".into(),
+        "--threads".into(), threads.to_string(),
+        "--jinja".into(),
+        "--no-webui".into(),
+    ];
+    if gpu_exe.is_some() {
+        args.push("--n-gpu-layers".into());
+        args.push("99".into());
+    }
+
+    let (mut rx, child) = cmd
+        .args(args)
+        .spawn()
+        .map_err(|e| format!("failed to spawn llama-server: {}", e))?;
+
+    {
+        let state = app.state::<AppState>();
+        let mut guard = state.llama_child.lock().unwrap();
+        if let Some(old) = guard.take() {
+            let _ = old.kill();
+        }
+        *guard = Some(child);
+    }
+    println!(
+        "llama-server spawned ({}) with model: {}",
+        if gpu_exe.is_some() { "GPU/Vulkan" } else { "CPU" },
+        model_path
+    );
+
+    // Drain stdout/stderr so the child never blocks on a full pipe
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stderr(b) => {
+                    eprintln!("[llama] {}", String::from_utf8_lossy(&b).trim())
+                }
+                CommandEvent::Stdout(b) => {
+                    println!("[llama] {}", String::from_utf8_lossy(&b).trim())
+                }
+                CommandEvent::Terminated(payload) => {
+                    eprintln!("[llama] terminated with code {:?}", payload.code);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+
+    // Wait for health, then tell the Python sidecar where to reach the brain
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let client = reqwest::Client::new();
+        let health_url = format!("http://127.0.0.1:{}/health", LLAMA_PORT);
+        for _ in 0..120 {
+            let healthy = client
+                .get(&health_url)
+                .timeout(std::time::Duration::from_millis(500))
+                .send()
+                .await
+                .map(|r| r.status().is_success())
+                .unwrap_or(false);
+            if healthy {
+                println!("llama-server healthy on port {}", LLAMA_PORT);
+                let state = app_handle.state::<AppState>();
+                let msg = format!("ai_local_url:{}\n", llama_base_url());
+                let mut guard = state.python_child.lock().unwrap();
+                if let Some(child) = guard.as_mut() {
+                    let _ = child.write(msg.as_bytes());
+                }
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        eprintln!("llama-server did not become healthy within 60s");
+    });
+
+    Ok(())
+}
+
+fn stop_llama_server(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let mut guard = state.llama_child.lock().unwrap();
+    if let Some(child) = guard.take() {
+        let _ = child.kill();
+        println!("llama-server stopped");
+    }
+}
+
+/// Transparent undecorated windows occasionally render with a ghost titlebar
+/// or an opaque background after being shown or regaining focus (upstream
+/// WebView2 bug: tauri#14764, tauri#14859). Forcing a frame recalculation
+/// clears it; a 1px size nudge makes WebView2 recomposite.
+fn refresh_window_chrome(hwnd: HWND, nudge: bool) {
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOP),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+        if nudge {
+            let mut rect = RECT::default();
+            if GetWindowRect(hwnd, &mut rect).is_ok() {
+                let w = rect.right - rect.left;
+                let h = rect.bottom - rect.top;
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOP),
+                    0,
+                    0,
+                    w + 1,
+                    h,
+                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOP),
+                    0,
+                    0,
+                    w,
+                    h,
+                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+            }
+        }
+    }
+}
+
+/// Show the orb window without stealing focus, then refresh the chrome.
+fn show_orb_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if let Ok(hwnd) = window.hwnd() {
+            unsafe {
+                let _ = ShowWindow(HWND(hwnd.0), SW_SHOWNA);
+            }
+            refresh_window_chrome(HWND(hwnd.0), true);
+        }
+    }
 }
 
 const WAKE_MP3: &[u8] = include_bytes!("../assets/wake.mp3");
@@ -256,8 +486,57 @@ fn preview_voice(state: tauri::State<'_, AppState>, voice: String) {
 }
 
 #[tauri::command]
-fn set_ai_mode(state: tauri::State<'_, AppState>, mode: String) {
-    let msg = format!("ai_mode:{}\n", mode);
+fn set_ai_mode(app: tauri::AppHandle, mode: String) {
+    {
+        let state = app.state::<AppState>();
+        let msg = format!("ai_mode:{}\n", mode);
+        let mut child_guard = state.python_child.lock().unwrap();
+        if let Some(child) = child_guard.as_mut() {
+            let _ = child.write(msg.as_bytes());
+        }
+    }
+
+    // Rust owns the local LLM lifecycle
+    if mode == "local" {
+        let model_path = app
+            .store("settings.json")
+            .ok()
+            .and_then(|s| s.get("ai_local_model"))
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default();
+        if !model_path.is_empty() && std::path::Path::new(&model_path).exists() {
+            if let Err(e) = spawn_llama_server(&app, &model_path) {
+                eprintln!("failed to start llama-server: {}", e);
+            }
+        }
+    } else {
+        stop_llama_server(&app);
+    }
+}
+
+#[tauri::command]
+fn set_ai_local_model(app: tauri::AppHandle, model_path: String) {
+    // The model path is consumed by llama-server (Rust-side), not Python.
+    // Restart the server with the new model if local mode is active.
+    let mode = app
+        .store("settings.json")
+        .ok()
+        .and_then(|s| s.get("ai_mode"))
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_else(|| "off".to_string());
+
+    if model_path.is_empty() {
+        stop_llama_server(&app);
+    } else if mode == "local" && std::path::Path::new(&model_path).exists() {
+        if let Err(e) = spawn_llama_server(&app, &model_path) {
+            eprintln!("failed to restart llama-server: {}", e);
+        }
+    }
+}
+
+#[tauri::command]
+fn set_personality(state: tauri::State<'_, AppState>, personality: String) {
+    let msg = format!("personality:{}\n", personality);
     let mut child_guard = state.python_child.lock().unwrap();
     if let Some(child) = child_guard.as_mut() {
         let _ = child.write(msg.as_bytes());
@@ -265,12 +544,193 @@ fn set_ai_mode(state: tauri::State<'_, AppState>, mode: String) {
 }
 
 #[tauri::command]
-fn set_ai_local_model(state: tauri::State<'_, AppState>, model_path: String) {
-    let msg = format!("ai_local_model:{}\n", model_path);
+fn set_followup_enabled(state: tauri::State<'_, AppState>, enabled: bool) {
+    let msg = if enabled { "followup:1\n" } else { "followup:0\n" };
     let mut child_guard = state.python_child.lock().unwrap();
     if let Some(child) = child_guard.as_mut() {
         let _ = child.write(msg.as_bytes());
     }
+}
+
+#[tauri::command]
+fn set_wake_sensitivity(state: tauri::State<'_, AppState>, value: String) {
+    let msg = format!("wake_sensitivity:{}\n", value);
+    let mut child_guard = state.python_child.lock().unwrap();
+    if let Some(child) = child_guard.as_mut() {
+        let _ = child.write(msg.as_bytes());
+    }
+}
+
+#[tauri::command]
+fn gpu_status(app: tauri::AppHandle) -> serde_json::Value {
+    let installed = gpu_runtime_exe(&app).is_some();
+    let enabled = gpu_accel_enabled(&app);
+    serde_json::json!({ "installed": installed, "enabled": enabled })
+}
+
+/// Restart llama-server if local AI mode is active (used after GPU toggle).
+fn restart_llama_if_local(app: &tauri::AppHandle) {
+    let store = app.store("settings.json").ok();
+    let mode = store
+        .as_ref()
+        .and_then(|s| s.get("ai_mode"))
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_else(|| "off".to_string());
+    let model = store
+        .as_ref()
+        .and_then(|s| s.get("ai_local_model"))
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default();
+    if mode == "local" && !model.is_empty() && std::path::Path::new(&model).exists() {
+        if let Err(e) = spawn_llama_server(app, &model) {
+            eprintln!("llama-server restart failed: {}", e);
+        }
+    }
+}
+
+#[tauri::command]
+fn set_gpu_accel(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let store = app.store("settings.json").map_err(|e| e.to_string())?;
+    store.set("gpu_accel", serde_json::json!(enabled));
+    store.save().map_err(|e| e.to_string())?;
+    println!("gpu acceleration {}", if enabled { "enabled" } else { "disabled" });
+    restart_llama_if_local(&app);
+    Ok(())
+}
+
+/// Extract a downloaded GPU llama-server zip into the app data runtime dir.
+#[tauri::command]
+fn install_gpu_runtime(app: tauri::AppHandle, zip_path: String) -> Result<(), String> {
+    let dir = gpu_runtime_dir(&app).ok_or_else(|| "no app data dir".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    if !std::path::Path::new(&zip_path).exists() {
+        return Err(format!("zip not found: {}", zip_path));
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let script = format!(
+            "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
+            zip_path.replace('\'', "''"),
+            dir.to_string_lossy().replace('\'', "''"),
+        );
+        let out = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("failed to run powershell: {}", e))?;
+        if !out.status.success() {
+            return Err(format!(
+                "extraction failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+    }
+
+    if gpu_runtime_exe(&app).is_none() {
+        return Err("llama-server.exe not found after extraction".to_string());
+    }
+    let _ = std::fs::remove_file(&zip_path);
+    println!("GPU runtime installed to {}", dir.display());
+    Ok(())
+}
+
+#[tauri::command]
+fn list_audio_devices(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> serde_json::Value {
+    use rodio::cpal::traits::{DeviceTrait, HostTrait};
+
+    let inputs = state.input_devices.lock().unwrap().clone();
+
+    let host = rodio::cpal::default_host();
+    let outputs: Vec<String> = host
+        .output_devices()
+        .map(|devs| devs.filter_map(|d| d.name().ok()).collect())
+        .unwrap_or_default();
+
+    let store = app.store("settings.json").ok();
+    let current_input = store
+        .as_ref()
+        .and_then(|s| s.get("audio_input_device"))
+        .and_then(|v| v.as_i64());
+    let current_output = store
+        .as_ref()
+        .and_then(|s| s.get("audio_output_device"))
+        .and_then(|v| v.as_str().map(String::from));
+
+    serde_json::json!({
+        "inputs": inputs,
+        "outputs": outputs,
+        "current_input": current_input,
+        "current_output": current_output,
+    })
+}
+
+#[tauri::command]
+fn set_input_device(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    index: Option<i64>,
+) -> Result<(), String> {
+    let store = app.store("settings.json").map_err(|e| e.to_string())?;
+    store.set("audio_input_device", serde_json::json!(index));
+    store.save().map_err(|e| e.to_string())?;
+
+    let msg = match index {
+        Some(i) => format!("input_device:{}\n", i),
+        None => "input_device:default\n".to_string(),
+    };
+    let mut guard = state.python_child.lock().unwrap();
+    if let Some(child) = guard.as_mut() {
+        child.write(msg.as_bytes()).map_err(|e| e.to_string())?;
+    }
+    println!(
+        "input device set to {}",
+        index.map(|i| i.to_string()).unwrap_or_else(|| "default".into())
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn set_output_device(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    name: Option<String>,
+) -> Result<(), String> {
+    use rodio::cpal::traits::{DeviceTrait, HostTrait};
+
+    let (new_stream, new_handle) = match &name {
+        Some(device_name) => {
+            let host = rodio::cpal::default_host();
+            let device = host
+                .output_devices()
+                .map_err(|e| e.to_string())?
+                .find(|d| d.name().ok().as_deref() == Some(device_name.as_str()))
+                .ok_or_else(|| format!("output device not found: {}", device_name))?;
+            OutputStream::try_from_device(&device).map_err(|e| e.to_string())?
+        }
+        None => OutputStream::try_default().map_err(|e| e.to_string())?,
+    };
+
+    {
+        let mut stream_guard = state._audio_stream.lock().unwrap();
+        *stream_guard = SendSyncWrapper(new_stream);
+    }
+    {
+        let mut handle_guard = state.audio_handle.lock().unwrap();
+        *handle_guard = new_handle;
+    }
+    if let Some(sink) = state.tts_sink.lock().unwrap().take() {
+        sink.stop();
+    }
+    *state.custom_output_device.lock().unwrap() = name.clone();
+
+    let store = app.store("settings.json").map_err(|e| e.to_string())?;
+    store.set("audio_output_device", serde_json::json!(name));
+    store.save().map_err(|e| e.to_string())?;
+    println!("output device set to {}", name.as_deref().unwrap_or("default"));
+    Ok(())
 }
 
 #[tauri::command]
@@ -388,8 +848,12 @@ pub fn run() {
                             if triggered_shortcut == current {
                                 let mut python_child_guard = state.python_child.lock().unwrap();
                                 if let Some(child) = python_child_guard.as_mut() {
-                                    let _ = child.write(b"trigger\n");
-                                    println!("Manual trigger via hotkey sent to Python");
+                                    match child.write(b"trigger\n") {
+                                        Ok(_) => println!("Manual trigger via hotkey sent to Python"),
+                                        Err(e) => eprintln!("Failed to send manual trigger to Python: {}", e),
+                                    }
+                                } else {
+                                    eprintln!("Manual trigger ignored: Python sidecar not running");
                                 }
                             }
                         }
@@ -399,15 +863,29 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .on_window_event(|window, event| {
+            // Transparent undecorated windows can grow a ghost titlebar when
+            // they regain focus (upstream WebView2 bug, tauri#14764/#14859).
+            if window.label() == "main" {
+                if let tauri::WindowEvent::Focused(true) = event {
+                    if let Ok(hwnd) = window.hwnd() {
+                        refresh_window_chrome(HWND(hwnd.0), false);
+                    }
+                }
+            }
+        })
         .manage(AppState {
             state: Mutex::new(OrbState::Idle),
             python_child: Mutex::new(None),
+            llama_child: Mutex::new(None),
             audio_handle: Mutex::new(audio_handle),
             audio_feedback: Mutex::new(true),
             current_shortcut: Mutex::new(None),
             _audio_stream: Mutex::new(SendSyncWrapper(audio_stream)),
             tts_sink: Mutex::new(None),
             tts_enabled: Mutex::new(true),
+            input_devices: Mutex::new(Vec::new()),
+            custom_output_device: Mutex::new(None),
         })
         .setup(move |app| {
             let app_handle = app.handle().clone();
@@ -458,7 +936,16 @@ pub fn run() {
 
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    
+
+                    // A user-selected output device takes precedence over
+                    // tracking the system default.
+                    {
+                        let state = audio_app_handle.state::<AppState>();
+                        if state.custom_output_device.lock().unwrap().is_some() {
+                            continue;
+                        }
+                    }
+
                     let new_id = get_default_id();
                     if new_id != current_device_id {
                         println!("Default audio output device changed to: {:?}. Refreshing...", new_id);
@@ -493,6 +980,20 @@ pub fn run() {
                     if let Some(enabled) = audio_feedback.as_bool() {
                         let mut guard = state.audio_feedback.lock().unwrap();
                         *guard = enabled;
+                    }
+                }
+
+                // Apply saved output device (user-selected speaker)
+                if let Some(dev_name) = store
+                    .get("audio_output_device")
+                    .and_then(|v| v.as_str().map(String::from))
+                {
+                    if let Err(e) = set_output_device(
+                        app_handle.clone(),
+                        app_handle.state(),
+                        Some(dev_name.clone()),
+                    ) {
+                        eprintln!("failed to apply saved output device {}: {}", dev_name, e);
                     }
                 }
 
@@ -598,6 +1099,11 @@ pub fn run() {
                             let _ = child.kill();
                             println!("STT Sidecar killed on exit.");
                         }
+                        let mut llama_guard = state.llama_child.lock().unwrap();
+                        if let Some(child) = llama_guard.take() {
+                            let _ = child.kill();
+                            println!("llama-server killed on exit.");
+                        }
                         app.exit(0);
                     }
                     _ => {}
@@ -664,6 +1170,7 @@ pub fn run() {
                 unsafe {
                     let _ = ShowWindow(HWND(hwnd.0), SW_SHOWNA);
                 }
+                refresh_window_chrome(HWND(hwnd.0), true);
                 
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -688,23 +1195,23 @@ pub fn run() {
                 loop {
                     println!("Spawning STT sidecar...");
 
-                    // In dev mode (debug_assertions), prefer running Python stt.py directly.
-                    // In release/production, use compiled sidecar executable.
+                    // In dev mode (debug_assertions), prefer running the Python sidecar directly.
+                    // In release/production, use the compiled sidecar executable.
                     #[cfg(debug_assertions)]
-                    let cmd = if std::path::Path::new("src-tauri/stt.py").exists() {
-                        shell.command("python").args(["-u", "src-tauri/stt.py"])
-                    } else if std::path::Path::new("stt.py").exists() {
-                        shell.command("python").args(["-u", "stt.py"])
+                    let cmd = if std::path::Path::new("src-tauri/sidecar/main.py").exists() {
+                        shell.command("python").args(["-u", "src-tauri/sidecar/main.py"])
+                    } else if std::path::Path::new("sidecar/main.py").exists() {
+                        shell.command("python").args(["-u", "sidecar/main.py"])
                     } else {
                         shell.sidecar("stt").unwrap()
                     };
 
                     #[cfg(not(debug_assertions))]
                     let cmd = shell.sidecar("stt").unwrap_or_else(|_| {
-                        if std::path::Path::new("src-tauri/stt.py").exists() {
-                            shell.command("python").args(["-u", "src-tauri/stt.py"])
+                        if std::path::Path::new("src-tauri/sidecar/main.py").exists() {
+                            shell.command("python").args(["-u", "src-tauri/sidecar/main.py"])
                         } else {
-                            shell.command("python").args(["-u", "stt.py"])
+                            shell.command("python").args(["-u", "sidecar/main.py"])
                         }
                     });
 
@@ -753,14 +1260,47 @@ pub fn run() {
                             let ai_msg = format!("ai_mode:{}\n", ai_mode_val);
                             let _ = c.write(ai_msg.as_bytes());
 
-                            let ai_model_path = store.as_ref().ok()
-                                .and_then(|s| s.get("ai_local_model"))
+                            // Personality (minimal | conversational)
+                            let personality = store.as_ref().ok()
+                                .and_then(|s| s.get("personality"))
                                 .and_then(|v| v.as_str().map(String::from))
-                                .unwrap_or_default();
-                            if !ai_model_path.is_empty() {
-                                let msg = format!("ai_local_model:{}\n", ai_model_path);
+                                .unwrap_or_else(|| "minimal".to_string());
+                            let msg = format!("personality:{}\n", personality);
+                            let _ = c.write(msg.as_bytes());
+
+                            // Follow-up conversation window (off by default)
+                            let followup = store.as_ref().ok()
+                                .and_then(|s| s.get("followup_enabled"))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            let msg = format!("followup:{}\n", if followup { 1 } else { 0 });
+                            let _ = c.write(msg.as_bytes());
+
+                            // Wake word sensitivity (low | medium | high)
+                            let wake_sens = store.as_ref().ok()
+                                .and_then(|s| s.get("wake_sensitivity"))
+                                .and_then(|v| v.as_str().map(String::from))
+                                .unwrap_or_else(|| "medium".to_string());
+                            let msg = format!("wake_sensitivity:{}\n", wake_sens);
+                            let _ = c.write(msg.as_bytes());
+
+                            // Persistent memory location (app data dir)
+                            if let Ok(data_dir) = stt_app_handle.path().app_data_dir() {
+                                let _ = std::fs::create_dir_all(&data_dir);
+                                let mem_path = data_dir.join("memory.db");
+                                let msg = format!("memory_path:{}\n", mem_path.to_string_lossy());
                                 let _ = c.write(msg.as_bytes());
                             }
+
+                            // Microphone selection (index or system default)
+                            let input_dev = store.as_ref().ok()
+                                .and_then(|s| s.get("audio_input_device"))
+                                .and_then(|v| v.as_i64());
+                            let input_msg = match input_dev {
+                                Some(i) => format!("input_device:{}\n", i),
+                                None => "input_device:default\n".to_string(),
+                            };
+                            let _ = c.write(input_msg.as_bytes());
 
                             let ai_api_key = store.as_ref().ok()
                                 .and_then(|s| s.get("ai_cloud_api_key"))
@@ -799,20 +1339,21 @@ pub fn run() {
 
                                         match json["status"].as_str() {
                                             Some("detected") => {
-                                                println!("Wake word detected!");
+                                                let ww = json["wakeword"].as_str().unwrap_or("unknown");
+                                                println!("Wake word detected: {}", ww);
                                                 play_wake_sound(&stt_app_handle);
+                                                // Barge-in: stop any TTS that is still speaking
+                                                {
+                                                    let mut tts_guard = state_lock.tts_sink.lock().unwrap();
+                                                    if let Some(sink) = tts_guard.take() {
+                                                        sink.stop();
+                                                    }
+                                                }
                                                 {
                                                     let mut s = state_lock.state.lock().unwrap();
                                                     *s = OrbState::Listening;
                                                 }
-                                                if let Some(window) =
-                                                    stt_app_handle.get_webview_window("main")
-                                                {
-                                                    let hwnd = window.hwnd().unwrap();
-                                                    unsafe {
-                                                        let _ = ShowWindow(HWND(hwnd.0), SW_SHOWNA);
-                                                    }
-                                                }
+                                                show_orb_window(&stt_app_handle);
                                                 stt_app_handle
                                                     .emit("orb-state-change", OrbState::Listening)
                                                     .unwrap();
@@ -824,6 +1365,18 @@ pub fn run() {
                                                 }
                                                 stt_app_handle
                                                     .emit("orb-state-change", OrbState::Recording)
+                                                    .unwrap();
+                                            }
+                                            Some("followup") => {
+                                                // Follow-up window: show the orb as listening
+                                                // without the wake chime
+                                                {
+                                                    let mut s = state_lock.state.lock().unwrap();
+                                                    *s = OrbState::Listening;
+                                                }
+                                                show_orb_window(&stt_app_handle);
+                                                stt_app_handle
+                                                    .emit("orb-state-change", OrbState::Listening)
                                                     .unwrap();
                                             }
                                             Some("transcribing") => {
@@ -900,6 +1453,17 @@ pub fn run() {
                                                     }
                                                 });
                                             }
+                                            Some("input_devices") => {
+                                                if let Some(devices) = json["devices"].as_array() {
+                                                    let mut guard =
+                                                        state_lock.input_devices.lock().unwrap();
+                                                    *guard = devices.clone();
+                                                    println!(
+                                                        "input devices enumerated: {} available",
+                                                        devices.len()
+                                                    );
+                                                }
+                                            }
                                             Some("ready") => {
                                                 let mut s = state_lock.state.lock().unwrap();
                                                 if !matches!(
@@ -952,6 +1516,12 @@ pub fn run() {
                                                 });
                                             }
                                             Some("hide") => {
+                                                {
+                                                    let mut s = state_lock.state.lock().unwrap();
+                                                    *s = OrbState::Idle;
+                                                }
+                                                let _ = stt_app_handle
+                                                    .emit("orb-state-change", OrbState::Idle);
                                                 if let Some(window) =
                                                     stt_app_handle.get_webview_window("main")
                                                 {
@@ -992,13 +1562,14 @@ pub fn run() {
                                                                     }));
                                                                 }
 
-                                                                // Show window if hidden
-                                                                if let Some(window) = stt_app_handle.get_webview_window("main") {
-                                                                    let hwnd = window.hwnd().unwrap();
-                                                                    unsafe {
-                                                                        let _ = ShowWindow(HWND(hwnd.0), SW_SHOWNA);
-                                                                    }
-                                                                }
+                // Show window if hidden
+                if let Some(window) = stt_app_handle.get_webview_window("main") {
+                    let hwnd = window.hwnd().unwrap();
+                    unsafe {
+                        let _ = ShowWindow(HWND(hwnd.0), SW_SHOWNA);
+                    }
+                    refresh_window_chrome(HWND(hwnd.0), true);
+                }
 
                                                                 let h = stt_app_handle.clone();
                                                                 tauri::async_runtime::spawn(async move {
@@ -1047,6 +1618,28 @@ pub fn run() {
                 }
             });
 
+            // Start the local LLM server if local AI mode is configured
+            {
+                let store = app_handle.store("settings.json");
+                let ai_mode = store.as_ref().ok()
+                    .and_then(|s| s.get("ai_mode"))
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_else(|| "off".to_string());
+                let model_path = store.as_ref().ok()
+                    .and_then(|s| s.get("ai_local_model"))
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_default();
+
+                if ai_mode == "local"
+                    && !model_path.is_empty()
+                    && std::path::Path::new(&model_path).exists()
+                {
+                    if let Err(e) = spawn_llama_server(&app_handle, &model_path) {
+                        eprintln!("llama-server startup failed: {}", e);
+                    }
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1061,6 +1654,15 @@ pub fn run() {
             set_ai_mode,
             set_ai_local_model,
             set_ai_cloud,
+            set_personality,
+            set_followup_enabled,
+            set_wake_sensitivity,
+            gpu_status,
+            set_gpu_accel,
+            install_gpu_runtime,
+            list_audio_devices,
+            set_input_device,
+            set_output_device,
             download_file,
             file_exists,
             delete_file,

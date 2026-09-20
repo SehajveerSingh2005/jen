@@ -53,8 +53,12 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "stt"
+      "stt",
+      "llama-server"
     ],
+    "resources": {
+      "binaries/*.dll": "./"
+    },
     "createUpdaterArtifacts": true
   },
   "plugins": {

@@ -20,6 +20,10 @@
         {
           "name": "stt",
           "sidecar": true
+        },
+        {
+          "name": "llama-server",
+          "sidecar": true
         }
       ]
     },
@@ -28,6 +32,10 @@
       "allow": [
         {
           "name": "stt",
+          "sidecar": true
+        },
+        {
+          "name": "llama-server",
           "sidecar": true
         }
       ]
