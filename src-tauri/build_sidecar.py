@@ -1,145 +1,117 @@
+"""Build the Python sidecar into a single executable via PyInstaller.
+
+Usage:
+    python src-tauri/build_sidecar.py
+
+Produces stt-<triple>.exe deployed to the locations Tauri expects.
+"""
+
 import os
+import shutil
 import subprocess
 import sys
-import shutil
 import glob
 
-def build():
-    # Absolute path to project root and src-tauri
-    src_tauri_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(src_tauri_dir)
-    os.chdir(src_tauri_dir)
-    
-    print(f"--- Bulletproof Sidecar Build ---")
-    print(f"Project Root: {project_root}")
-    print(f"src-tauri: {src_tauri_dir}")
+SRC_TAURI = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SRC_TAURI)
+ENTRY = os.path.join(SRC_TAURI, "sidecar", "main.py")
 
-    # Get target triple
+
+def get_target_triple():
     try:
-        # Try to get it from rustc for maximum accuracy
-        target_triple = subprocess.check_output(["rustc", "-vV"]).decode().split("host: ")[1].split("\n")[0].strip()
-        print(f"Detected target triple: {target_triple}")
-    except Exception as e:
-        print(f"Warning: Could not detect target triple via rustc: {e}")
-        target_triple = "x86_64-pc-windows-msvc"
-    
-    binary_name = f"stt-{target_triple}.exe"
-    
-    # Run PyInstaller
-    script_path = os.path.join(src_tauri_dir, "stt.py")
-    hey_jen_model = os.path.join(src_tauri_dir, "hey_jen.onnx")
-    tts_module = os.path.join(src_tauri_dir, "tts.py")
-    ai_module = os.path.join(src_tauri_dir, "ai_model.py")
+        out = subprocess.check_output(["rustc", "-vV"]).decode()
+        return out.split("host: ")[1].split("\n")[0].strip()
+    except Exception:
+        return "x86_64-pc-windows-msvc"
 
-    # Find openwakeword resources
+
+def main():
+    os.chdir(SRC_TAURI)
+    triple = get_target_triple()
+    binary_name = f"stt-{triple}.exe"
+
+    if not os.path.exists(ENTRY):
+        print(f"ERROR: entry point not found: {ENTRY}")
+        sys.exit(1)
+
+    # Find openwakeword models
     try:
         import openwakeword
         oww_root = os.path.dirname(openwakeword.__file__)
     except ImportError:
         print("ERROR: openwakeword not installed")
         sys.exit(1)
-    
-    # Create a local models directory to collect everything we need
-    # This avoids issues with finding them in site-packages during build
-    temp_models_dir = os.path.join(src_tauri_dir, "temp_models")
-    if os.path.exists(temp_models_dir):
-        shutil.rmtree(temp_models_dir)
-    os.makedirs(temp_models_dir)
+
+    # Collect openwakeword resources
+    temp_models = os.path.join(SRC_TAURI, "temp_models")
+    if os.path.exists(temp_models):
+        shutil.rmtree(temp_models)
+    os.makedirs(temp_models)
 
     def collect_model(pattern, dest_name):
-        search_patterns = [
-            os.path.join(oww_root, "resources", "models", pattern),
-            os.path.join(oww_root, "models", pattern),
-            os.path.expanduser(f"~/.openwakeword/{pattern}"),
-            os.path.expanduser(f"~/.openwakeword/models/{pattern}"),
-        ]
-        
-        for p in search_patterns:
-            matches = glob.glob(p)
-            if matches:
-                # Filter for .onnx if pattern doesn't specify
-                onnx_matches = [m for m in matches if m.endswith(".onnx")]
-                if onnx_matches:
-                    target = os.path.join(temp_models_dir, dest_name)
-                    shutil.copy2(onnx_matches[0], target)
-                    print(f"Collected {dest_name} from {onnx_matches[0]}")
-                    return True
+        for p in glob.glob(os.path.join(oww_root, "resources", "models", pattern)):
+            shutil.copy2(p, os.path.join(temp_models, dest_name))
+            print(f"Collected {dest_name}")
+            return True
+        for p in glob.glob(os.path.expanduser(f"~/.openwakeword/{pattern}")):
+            shutil.copy2(p, os.path.join(temp_models, dest_name))
+            print(f"Collected {dest_name}")
+            return True
         return False
 
-    print("Collecting required openwakeword models...")
-    melspec = collect_model("melspectrogram.onnx", "melspectrogram.onnx")
-    embed = collect_model("embedding_model.onnx", "embedding_model.onnx")
-    jarvis = collect_model("hey_jarvis*.onnx", "hey_jarvis.onnx")
-    
-    if not (melspec and embed):
-        print("WARNING: Could not find base models. Attempting to download...")
-        try:
-            from openwakeword.utils import download_models
-            download_models()
-            # Try again
-            collect_model("melspectrogram.onnx", "melspectrogram.onnx")
-            collect_model("embedding_model.onnx", "embedding_model.onnx")
-            collect_model("hey_jarvis*.onnx", "hey_jarvis.onnx")
-        except Exception as e:
-            print(f"Failed to download models: {e}")
+    print("Collecting openwakeword models...")
+    collect_model("melspectrogram.onnx", "melspectrogram.onnx")
+    collect_model("embedding_model.onnx", "embedding_model.onnx")
+    collect_model("hey_jarvis*.onnx", "hey_jarvis.onnx")
 
     cmd = [
         "pyinstaller",
         "--onefile",
         "--noconsole",
-        f"--add-data={hey_jen_model};.",
-        f"--add-data={tts_module};.",
-        f"--add-data={ai_module};.",
-        f"--add-data={temp_models_dir};models",
+        f"--add-data={os.path.join(SRC_TAURI, 'hey_jen.onnx')};.",
+        f"--add-data={temp_models};models",
         "--collect-all=openwakeword",
         "--hidden-import=openwakeword",
         "--hidden-import=onnxruntime",
         "--hidden-import=speech_recognition",
         "--hidden-import=pyaudio",
         "--hidden-import=screen_brightness_control",
-        "--hidden-import=wmi",
         "--hidden-import=edge_tts",
-        "--hidden-import=tts",
-        "--hidden-import=ai_model",
-        "--hidden-import=llama_cpp",
         "--hidden-import=httpx",
         "--name=stt",
-        script_path
+        ENTRY,
     ]
 
-    print(f"Compiling sidecar...")
+    print("Compiling sidecar...")
     subprocess.run(cmd, check=True)
 
-    # Cleanup temp models
-    shutil.rmtree(temp_models_dir)
+    shutil.rmtree(temp_models)
 
-    generated_exe = os.path.join(src_tauri_dir, "dist", "stt.exe")
-
-    if not os.path.exists(generated_exe):
-        print("ERROR: PyInstaller failed to create stt.exe")
+    generated = os.path.join(SRC_TAURI, "dist", "stt.exe")
+    if not os.path.exists(generated):
+        print("ERROR: PyInstaller failed")
         sys.exit(1)
 
-    # List of destinations to ensure Tauri finds it
+    # Deploy to all locations Tauri looks for sidecars
     destinations = [
-        os.path.join(src_tauri_dir, "binaries", binary_name), # Standard v2 location
-        os.path.join(src_tauri_dir, binary_name),            # Root of src-tauri (fallback)
-        os.path.join(project_root, "binaries", binary_name), # Root of project (fallback)
-        os.path.join(project_root, binary_name)              # Root of project (fallback)
+        os.path.join(PROJECT_ROOT, binary_name),          # project root (primary)
+        os.path.join(PROJECT_ROOT, "binaries", binary_name),
+        os.path.join(SRC_TAURI, binary_name),
+        os.path.join(SRC_TAURI, "binaries", binary_name),
     ]
-
     for dest in destinations:
         os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.copy2(generated_exe, dest)
-        print(f"Deployed to: {dest}")
+        shutil.copy2(generated, dest)
+        print(f"Deployed: {dest}")
 
-    # Cleanup
-    shutil.rmtree(os.path.join(src_tauri_dir, "build"), ignore_errors=True)
-    shutil.rmtree(os.path.join(src_tauri_dir, "dist"), ignore_errors=True)
-    spec_file = os.path.join(src_tauri_dir, "stt.spec")
-    if os.path.exists(spec_file):
-        os.remove(spec_file)
+    shutil.rmtree(os.path.join(SRC_TAURI, "build"), ignore_errors=True)
+    shutil.rmtree(os.path.join(SRC_TAURI, "dist"), ignore_errors=True)
+    spec = os.path.join(SRC_TAURI, "stt.spec")
+    if os.path.exists(spec):
+        os.remove(spec)
 
-    print(f"--- Sidecar Deployed Successfully ---")
+    print("--- Sidecar build complete ---")
+
 
 if __name__ == "__main__":
-    build()
+    main()
